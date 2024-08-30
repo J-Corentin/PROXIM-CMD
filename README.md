@@ -6,3 +6,4 @@
  |_|   |_| \_\\___/_/\_\___|_|  |_|
               
 ```
+PROXIM is a program based on the PowerShell module Corsinvest.ProxmoxVE. It enables the automation of a number of tasks on a PROXMOX system.

@@ -1,9 +1,3 @@
-```text
-  ____  ____   _____  _____ __  __  
- |  _ \|  _ \ / _ \ \/ /_ _|  \/  |
- | |_) | |_) | | | \  / | || |\/| |
- |  __/|  _ <| |_| /  \ | || |  | |
- |_|   |_| \_\\___/_/\_\___|_|  |_|
-              
-```
-PROXIM is a program based on the PowerShell module Corsinvest.ProxmoxVE. It enables the automation of a number of tasks on a PROXMOX system.
+# PROXIM  - Proxmox Interface Management
+
+PROXIM is a program based on the PowerShell module [Corsinvest.ProxmoxVE](https://github.com/Corsinvest/cv4pve-api-dotnet). It enables the automation of a number of tasks on a PROXMOX system.

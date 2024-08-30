@@ -16,5 +16,18 @@ This program is licensed under GPL-3.0. For more information, please refer to [t
  * And more ...
 
 
+## Requirement
+Minimum version requirement for Powershell is 6.0
+
+
 ## Installation & use
+To use PROXIM, you must install the Corsinvest.ProxmoxVE.Api module. To do this, open a PowerShell session as an administrator. Then, run the following command:
+```ps
+PS C:\Users\coren> Install-Module -Name Corsinvest.ProxmoxVE.Api
+```
+
+For more information on installing the module, please refer to this [link](https://github.com/Corsinvest/cv4pve-api-powershell).
+
+
+
 For the installation, nothing could be simpler. All you need to do is download the file : PROXIM.ps1

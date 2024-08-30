@@ -17,4 +17,4 @@ This program is licensed under GPL-3.0. For more information, please refer to [t
 
 
 ## Installation & use
-For the installation, nothing could be simpler. All you need to do is download the [file].(PROXIM - Proxmox Interface Management.ps1) : " PROXIM - Proxmox Interface Management.ps1 "
+For the installation, nothing could be simpler. All you need to do is download the file : PROXIM.ps1

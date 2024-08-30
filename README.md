@@ -28,6 +28,19 @@ PS C:\Users\coren> Install-Module -Name Corsinvest.ProxmoxVE.Api
 
 For more information on installing the module, please refer to this [link](https://github.com/Corsinvest/cv4pve-api-powershell).
 
+After installing the module, you can download the [PROXIM.ps1](PROXIM.ps1) file and open it in a PowerShell window. Then, execute it as follows:
+```ps
+PS C:\Users\coren\Downloads> PROXIM.ps1
+```
+## Function
+### -> Add Groups by .CSV file :
+To create groups from a .CSV file, you must follow the format below:
 
+```csv
+GroupName
+Professeurs
+Etudiants
+Administration
+```
 
-For the installation, nothing could be simpler. All you need to do is download the file : PROXIM.ps1
+GroupName is used to identify the column containing the group names.

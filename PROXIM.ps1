@@ -5,6 +5,7 @@ function Find-Module {
     }
 }
 
+#ok
 function Get-PVECredential {
     while ($true) {
         $PVEIPServer = $(Write-Host "Enter the IP address of your Proxmox server : " -ForegroundColor Yellow -NoNewLine; Read-Host )
@@ -20,10 +21,10 @@ function Get-PVECredential {
     $choice = $(Write-Host "For authentication using an API Token, enter '0'; otherwise, leave it blank : " -ForegroundColor Yellow -NoNewline; Read-Host )
 
     if ($choice -eq '0') {
-        $PVEApiKey = $(Write-Host "Enter your API Token : " -ForegroundColor Yellow -NoNewline; Read-Host)
+        $PVEApiKey = $(Write-Host "Enter your API Token : " -ForegroundColor Yellow -NoNewline; Read-Host -AsSecureString)
 
         try {
-            $PveTicket = Connect-PveCluster -HostsAndPorts $PVEIPServer -ApiToken $PVEApiKey -SkipCertificateCheck -ErrorAction Stop
+            $PveTicket = Connect-PveCluster -HostsAndPorts $PVEIPServer -ApiToken ([Net.NetworkCredential]::new('', $PVEApiKey).Password) -SkipCertificateCheck -ErrorAction Stop
         } 
         catch 
         {
@@ -108,7 +109,7 @@ function Show-GroupsUsersMenu {
     switch ($choice) {
         1 {Show-GroupsMenu} #ok
         2 {Get-Groups} #OK
-        3 {}
+        3 {Show-UsersMenu}
         4 {Get-Users} #OK
         5 { Show-Menu }
         default {
@@ -153,6 +154,41 @@ function Show-GroupsMenu {
             Write-Host " "
             Write-Host " "
             Show-GroupsMenu
+        }
+    }
+}
+
+function Show-UsersMenu {
+
+
+    # Display the menu header
+    Write-Host " "
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host "Please select an option:" -ForegroundColor Yellow
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host " "
+
+    # Display the menu options
+    Write-Host "1 - Import and Create Users by CSV" -ForegroundColor Green
+    Write-Host "2 - Create individual User" -ForegroundColor Green
+    Write-Host "3 - Exit" -ForegroundColor Green
+    Write-Host " "
+
+    # Prompt the user for a choice
+    Write-Host "Enter your choice : " -ForegroundColor Yellow -NoNewline
+    $choice = Read-Host
+
+    switch ($choice) {
+        1 { }
+        2 {New-User} 
+        3 {Show-GroupsUsersMenu} #ok
+        default {
+            Write-Host " "
+            Write-Host " "
+            Write-Host "Invalid choice. Please try again."
+            Write-Host " "
+            Write-Host " "
+            Show-UsersMenu
         }
     }
 }
@@ -239,7 +275,7 @@ function New-GroupCSV {
         Write-Host " -> $GroupsError Error" -ForegroundColor Red
 
         Write-Host " "
-        $choice = $(Write-Host "Type 1 to restart the creation of a group or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
+        $choice = $(Write-Host "Type 1 to restart the creation of a groups or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
 
         if ($choice -eq 1) {
             Clear-Host
@@ -247,11 +283,12 @@ function New-GroupCSV {
         } else {
             Show-GroupsMenu
         }
+
     } else {
         Write-Host " "
         Write-Host "Error: No value was found in the GroupName field" -ForegroundColor Red
         Write-Host " "
-        $choice = $(Write-Host "Type 1 to restart the creation of a group or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
+        $choice = $(Write-Host "Type 1 to restart the creation of a groups or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
 
         if ($choice -eq 1) {
             Clear-Host
@@ -331,7 +368,200 @@ function New-Group {
     }
 
     Show-GroupsMenu
+}
+
+function Get-Password {
     
+    $password = $(Write-Host "Enter the password of the new user : " -ForegroundColor Yellow -NoNewline; Read-Host -AsSecureString)
+
+    if ($password.Length -le 4)
+    {
+        Write-Host "Error : The password is not long enough. It must be at least 5 characters long" -ForegroundColor Red
+        Get-Password
+        return
+    }
+
+    return $password
+}
+
+function New-UserCSV {
+    $UsersSuccess = 0
+    $UsersError = 0
+    $UsersWarning = 0
+    $nbr = 1
+
+    $path = Get-FilePath
+
+    if ($null -eq $path) {
+        Write-Host "Error : No file selected. Please try again." -ForegroundColor Red
+        New-UserCSV
+        return
+    }
+
+    $CSVFile = Import-Csv -Path $path
+
+    if (($CSVFile.UserName).Count -ge 1)
+    {
+        foreach ($user in $CSVFile)
+        {
+            if ($null -eq $user.UserName)
+            {
+                Write-Host "Error : No UserName value found line $nbr" -ForegroundColor Red
+                $nbr++
+                $UsersError++
+            }
+            else {
+                if ((Get-UserExists $userName) -eq $false)
+                {
+                    if ($userName -notmatch "[^a-zA-Z0-9-_]")
+                    {
+                        if($null -ne $user.Password)
+                        {
+                            if($user.Password.Length -gt 5)
+                            {
+                                $password = ConvertTo-SecureString $user.Password
+
+                                try {
+                                    $command = New-PveAccessUsers -Userid "$userName@pve" -Password $password -ErrorAction Stop
+        
+                                    if ($command.IsSuccessStatusCode -eq $true)
+                                    {
+                                        Write-Host "Succes : The user name $($user.UserName) has been successfully created" -ForegroundColor Green
+                                        $UsersSuccess++
+                                    }
+                                    else {
+                                        Write-Host "Error: The user $($user.UserName) has not been created -> $($command.ReasonPhrase)" -ForegroundColor Red
+                                        $UsersError++
+                                    }
+                                }
+                                catch {
+                                    Write-Host "Error: The user $($user.UserName) has not been created -> $_" -ForegroundColor Red
+                                    $UsersError++
+                                }
+                            }
+                            else {
+                                Write-Host "Error : The password for $($user.UserName) not respect the minimun length" -ForegroundColor Red
+                                $UsersError++
+                            }
+                        }
+                        else {
+                            Write-Host "Error : No password found for $($user.UserName)" -ForegroundColor Red
+                            $UsersError++
+                        }
+                    }
+                    else {
+                        Write-Host "Error : Your user $($user.UserName) contains special characters" -ForegroundColor Red
+                        $UsersError++
+                    }
+                }
+                else {
+                    Write-Host "Warning: The user $($user.UserName) already exists on your Proxmox server." -ForegroundColor Magenta
+                    $UsersWarning++
+                }
+
+                $nbr++
+            }
+        }
+
+        Write-Host " "
+        Write-Host " "
+
+        # Display the information message
+        Write-Host "Info: The task of creating users is completed. During the task, there was -> " -ForegroundColor Yellow -NoNewline
+
+        # Display the success message in green
+        Write-Host "$UsersSuccess Success" -ForegroundColor Green -NoNewline
+
+        # Display the warning message in magenta
+        Write-Host " -> $UsersWarning Warning" -ForegroundColor Magenta -NoNewline
+
+        # Display the error message in red
+        Write-Host " -> $UsersError Error" -ForegroundColor Red
+
+    }
+    else {
+        Write-Host " "
+        Write-Host "Error : No value was found in the UserName field" -ForegroundColor Red
+        Write-Host " "
+        $choice = $(Write-Host "Type 1 to restart the creation of a users or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choice -eq 1) {
+            Clear-Host
+            New-UserCSV
+        } else {
+            Show-UsersMenu
+        }
+    }
+    
+}
+
+function New-User {
+    $userName = $(Write-Host "Enter name of the new User : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+    if ((Get-UserExists $userName) -eq $false) 
+    {
+        if ($userName -notmatch "[^a-zA-Z0-9-_]")
+        {
+            
+            $password = Get-Password
+
+            try {
+                $command = New-PveAccessUsers -Userid "$userName@pve" -Password $password -ErrorAction Stop
+
+                if ($command.IsSuccessStatusCode -eq $true)
+                {
+                    Write-Host " "
+                    Write-Host "Succes : The user has been successfully created" -ForegroundColor Green
+                }
+                else {
+                    Write-Host " "
+                    Write-Host "Error: The user $userName has not been created -> $($command.ReasonPhrase)" -ForegroundColor Red
+                }
+            }
+            catch {
+                Write-Host " "
+                Write-Host "Error: The user $userName has not been created -> $_" -ForegroundColor Red
+                Write-Host " "
+                $choice = $(Write-Host "Type 1 to restart the creation of a group or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
+            
+                if ($choice -eq 1)
+                {
+                    Clear-Host
+                    New-User
+                }
+                else {
+                    Show-UsersMenu
+                }
+            }
+
+            
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error : Your user name contains special characters" -ForegroundColor Red
+            Write-Host " "
+            $choice = Read-Host "Type 1 to restart the creation of a group or leave it blank to return to the previous menu : "
+            
+            if ($choice -eq 1)
+            {
+                Clear-Host
+                New-User
+            }
+        }
+        
+    }
+    else {
+        Write-Host "Warning : The user already exists on your Proxmox server." -ForegroundColor Magenta
+        Write-Host " "
+        $choice = $(Write-Host "Type 1 to restart the creation of a group or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choice -eq 1) {
+            Clear-Host
+            New-User
+        }
+    }
+    
+    Show-UsersMenu
 }
 
 function Get-GroupExists { param ( [string]$groupName )
@@ -343,6 +573,18 @@ function Get-GroupExists { param ( [string]$groupName )
     }
 
     return $GroupExists
+}
+
+function Get-UserExists {param ( [string]$userName )
+    $UserExists = $true
+
+    if($null -eq ((Get-PveAccessUsers).ToData() | Where-Object userid -eq "$userName@pve"))
+    {
+        $UserExists = $false
+    }
+
+    return $UserExists
+    
 }
 
 function Get-Groups {

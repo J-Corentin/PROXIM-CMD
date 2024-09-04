@@ -179,7 +179,7 @@ function Show-UsersMenu {
     $choice = Read-Host
 
     switch ($choice) {
-        1 { }
+        1 {New-UserCSV}
         2 {New-User} 
         3 {Show-GroupsUsersMenu} #ok
         default {
@@ -384,6 +384,57 @@ function Get-Password {
     return $password
 }
 
+function Set-UserGroups {param ( [string]$UserName, [string]$GroupName)
+
+    if ((Get-GroupExists $GroupName) -EQ $false)
+    {
+        $choice = $(Write-Host "Info : The group $GroupName does not exist. Would you like to create it? Type 1 to create the group or leave it blank to ignore" -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choice -eq 1)
+        {
+            if ($groupName -notmatch "[^a-zA-Z0-9-_]")
+            {
+                try {
+                    $command = New-PveAccessGroups -Groupid $GroupName -ErrorAction Stop
+    
+                    if ($command.IsSuccessStatusCode -eq $true)
+                    {
+                        Write-Host "Succes : The group $($GroupName) has been successfully created" -ForegroundColor Green
+                    }
+                    else {
+                        Write-Host "Error : The group $($GroupName) has not been created -> $($command.ReasonPhrase)" -ForegroundColor Red
+                    }
+                }
+                catch {
+                    Write-Host "Error : The group $($GroupName) has not been created -> $_" -ForegroundColor Red
+                }
+            }
+            else {
+                Write-Host "Error : Your group $($GroupName) contains special characters" -ForegroundColor Red
+            }
+        }
+        else {
+            return
+        }
+    }
+    
+    try {
+        $command = Set-PveAccessUsers -Userid "$UserName@pve" -Groups $GroupName
+
+        if ($command.IsSuccessStatusCode -eq $true)
+        {
+            Write-Host "Success : The user $($UserName) added the group $($GroupName)" -ForegroundColor Green
+        }
+        else {
+            Write-Host "Error : The user $($UserName) failed to add the group $($GroupName) -> $($command.ReasonPhrase)" -ForegroundColor Red
+        }
+    }
+    catch {
+        Write-Host "Error : The user $($UserName) failed to add the group $($GroupName) -> $_" -ForegroundColor Red
+    }
+    
+}
+
 function New-UserCSV {
     $UsersSuccess = 0
     $UsersError = 0
@@ -398,65 +449,76 @@ function New-UserCSV {
         return
     }
 
-    $CSVFile = Import-Csv -Path $path
+    Write-Host " "
 
-    if (($CSVFile.UserName).Count -ge 1)
-    {
-        foreach ($user in $CSVFile)
-        {
-            if ($null -eq $user.UserName)
-            {
+    $CSVFile = Import-Csv -Path $path -Delimiter ","
+
+    if (($CSVFile.UserName).Count -ge 1) {
+        foreach ($user in $CSVFile) {
+            $UserName = $user.UserName
+            $PW = $user.Password
+
+            if ($null -eq $UserName) {
                 Write-Host "Error : No UserName value found line $nbr" -ForegroundColor Red
                 $nbr++
                 $UsersError++
-            }
-            else {
-                if ((Get-UserExists $userName) -eq $false)
-                {
-                    if ($userName -notmatch "[^a-zA-Z0-9-_]")
-                    {
-                        if($null -ne $user.Password)
-                        {
-                            if($user.Password.Length -gt 5)
-                            {
-                                $password = ConvertTo-SecureString $user.Password
+            } else {
+                if ((Get-UserExists $UserName) -eq $false) {
+                    if ($UserName -notmatch "[^a-zA-Z0-9-_]") {
+                        if ($null -ne $PW) {
+                            if ($PW.Length -gt 5) {
+                                $password = ConvertTo-SecureString -String $PW -AsPlainText -Force
 
                                 try {
-                                    $command = New-PveAccessUsers -Userid "$userName@pve" -Password $password -ErrorAction Stop
-        
-                                    if ($command.IsSuccessStatusCode -eq $true)
-                                    {
-                                        Write-Host "Succes : The user name $($user.UserName) has been successfully created" -ForegroundColor Green
+                                    $command = New-PveAccessUsers -Userid "$UserName@pve" -Password $password -ErrorAction Stop
+
+                                    if ($command.IsSuccessStatusCode -eq $true) {
+                                        Write-Host "Succes : The user name $($UserName) has been successfully created" -ForegroundColor Green
                                         $UsersSuccess++
-                                    }
-                                    else {
-                                        Write-Host "Error: The user $($user.UserName) has not been created -> $($command.ReasonPhrase)" -ForegroundColor Red
+
+                                        for ($i = 0; $i -lt 10; $i++)
+                                        {
+                                            $GroupField = "Group$i"
+                                            $GroupName = $user.$GroupField
+
+                                            if (-not [string]::IsNullOrEmpty($GroupName)) {
+                                                Set-UserGroups $userName $GroupName
+                                            }
+                                        }
+
+                                    } else {
+                                        Write-Host "Error: The user $($UserName) has not been created -> $($command.ReasonPhrase)" -ForegroundColor Red
                                         $UsersError++
                                     }
-                                }
-                                catch {
-                                    Write-Host "Error: The user $($user.UserName) has not been created -> $_" -ForegroundColor Red
+                                } catch {
+                                    Write-Host "Error: The user $($UserName) has not been created -> $_" -ForegroundColor Red
                                     $UsersError++
                                 }
-                            }
-                            else {
-                                Write-Host "Error : The password for $($user.UserName) not respect the minimun length" -ForegroundColor Red
+                            } else {
+                                Write-Host "Error : The password for $($UserName) not respect the minimun length" -ForegroundColor Red
                                 $UsersError++
                             }
-                        }
-                        else {
-                            Write-Host "Error : No password found for $($user.UserName)" -ForegroundColor Red
+                        } else {
+                            Write-Host "Error : No password found for $($UserName)" -ForegroundColor Red
                             $UsersError++
                         }
-                    }
-                    else {
-                        Write-Host "Error : Your user $($user.UserName) contains special characters" -ForegroundColor Red
+                    } else {
+                        Write-Host "Error : Your user $($UserName) contains special characters" -ForegroundColor Red
                         $UsersError++
                     }
-                }
-                else {
-                    Write-Host "Warning: The user $($user.UserName) already exists on your Proxmox server." -ForegroundColor Magenta
+                } else {
+                    Write-Host "Warning: The user $($UserName) already exists on your Proxmox server." -ForegroundColor Magenta
                     $UsersWarning++
+
+                    for ($i = 0; $i -lt 10; $i++)
+                    {
+                        $GroupField = "Group$i"
+                        $GroupName = $user.$GroupField
+
+                        if (-not [string]::IsNullOrEmpty($GroupName)) {
+                            Set-UserGroups $userName $GroupName
+                        }
+                    }
                 }
 
                 $nbr++
@@ -478,8 +540,17 @@ function New-UserCSV {
         # Display the error message in red
         Write-Host " -> $UsersError Error" -ForegroundColor Red
 
-    }
-    else {
+        Write-Host " "
+        $choice = $(Write-Host "Type 1 to restart the creation of a users or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choice -eq 1) {
+            Clear-Host
+            New-UserCSV
+        } else {
+            Show-UsersMenu
+        }
+
+    } else {
         Write-Host " "
         Write-Host "Error : No value was found in the UserName field" -ForegroundColor Red
         Write-Host " "
@@ -492,7 +563,6 @@ function New-UserCSV {
             Show-UsersMenu
         }
     }
-    
 }
 
 function New-User {

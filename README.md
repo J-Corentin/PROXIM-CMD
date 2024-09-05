@@ -44,3 +44,14 @@ Administration
 ```
 
 GroupName is used to identify the column containing the group names.
+
+### -> Add Users by .CSV file
+To create users from a .CSV file, you must follow the format below:
+
+```csv
+UserName,Password,Group0,Group1,Group2,Group3,Group4,Group5,Group6,Group7,Group8,Group9,
+hello,PommeLover123,Professeurs,
+Pomme,PommeLover123@,,,,,,,,78,,,
+```
+
+This function allows you to create a user and configure their password, as well as assign groups via the Group[0-9] fields.

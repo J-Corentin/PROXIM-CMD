@@ -646,7 +646,7 @@ function New-User {
             Write-Host " "
             Write-Host "Error : Your user name contains special characters" -ForegroundColor Red
             Write-Host " "
-            $choice = Read-Host "Type 1 to restart the creation of a group or leave it blank to return to the previous menu : "
+            $choice = $(Write-Host "Type 1 to restart the creation of a group or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
             
             if ($choice -eq 1)
             {
@@ -747,51 +747,51 @@ function Get-Welcome {
 function Get-GroupDeploy {
     $nbr = 1
     
+    # Retrieve groups and convert to Data
     $groups = (Get-PveAccessGroups).ToData()
-
-    if ($groups.Groupid.count -ge 1) {
-
-        Write-Host "Here are the groups that exist :" -ForegroundColor Yellow
+    
+    if ($groups.Groupid.Count -ge 1) {
+        Write-Host "Here are the groups that exist:" -ForegroundColor Yellow
         Write-Host "=================================" -ForegroundColor Cyan
 
-        foreach($group in $groups)
-        {
+        # List groups
+        foreach ($group in $groups) {
             Write-Host "$nbr -> $($group.Groupid)"
             $nbr++
         }
 
         while ($true) {
-
             Write-Host " "
             $choix = $(Write-Host "Which group would you like to deploy virtual machines to? (Use the number to indicate the group). Press E to exit the function : " -ForegroundColor Yellow -NoNewline; Read-Host)
 
-            if ($choix -ge 0 -and $choix -le $groups.Groupid.Count) {
-            
-                $choix = $choix - 1
-    
-                return $groups.Groupid[$choix]
-            }
-            else {
-                if ($choix -eq "E")
-                {
-                    Show-MenuDeployVirtualMachine
-                    return
-                }
-                else {
+            # Handle numeric input
+            if ($choix -match '^\d+$') {
+                $choix = [int]$choix
+                $GroupsCount = $groups.Groupid.Count
+
+                if ($choix -ge 1 -and $choix -le $GroupsCount) {
+                    $choix = $choix - 1
+                    return $groups.Groupid[$choix]
+                } else {
                     Write-Host " "
-                    Write-Host "Error : Please enter a valid number or 'E' to exit." -ForegroundColor Red
+                    Write-Host "Error : Please enter a number between 1 and $GroupsCount, or 'E' to exit." -ForegroundColor Red
                 }
+            } elseif ($choix -eq "E") {
+                Show-MenuDeployVirtualMachine
+                return
+            } else {
+                Write-Host " "
+                Write-Host "Error : Please enter a valid number or 'E' to exit." -ForegroundColor Red
             }
         }
-    }
-    else {
+    } else {
         Write-Host " "
         Write-Host "Error : No group was found" -ForegroundColor Red
-
         Show-MenuDeployVirtualMachine
         return
     }
 }
+
 
 function New-DeployLXCGroup {
     
@@ -803,17 +803,26 @@ function New-DeployLXCGroup {
 
     $groupName = Get-GroupDeploy
 
-    $ListPools = (Get-PvePools).ToData()
 
-    if ($ListPools | Where-Object poolid -eq $groupName)
+    if ((Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members.count -ge 1)
     {
-        #rien car le pool existe deja
+        $ListPools = (Get-PvePools).ToData()
+
+        if ($ListPools | Where-Object poolid -eq $groupName)
+        {
+            #rien car le pool existe deja
+        }
+        else {
+            $null = New-PvePools -Poolid $groupName
+        }
+
+        $Template = Get-LXCTemplate
+
+        #voici la config de basse du conteneur
     }
     else {
-        New-PvePools -Poolid $groupName
+        Write-Host "Error : The group $groupName does not contain any users." -ForegroundColor Red
     }
-
-    $Template = Get-LXCTemplate
 
     Show-MenuDeployVirtualMachine
     
@@ -823,21 +832,21 @@ function Get-LXCTemplate {
     $nbr = 1
     $templates = New-Object System.Collections.Generic.List[PSCustomObject]
 
+    # Retrieve node data
     $nodes = (Get-PveNodes).ToData()
 
-    Write-Host "Here are the templates that exist :" -ForegroundColor Yellow
+    Write-Host "Here are the templates that exist:" -ForegroundColor Yellow
     Write-Host "====================================" -ForegroundColor Cyan
 
-    foreach ($node in $nodes)
-    {
-        $storage = (Get-PveNodesStorageContent -Node $node.node -Storage local).ToData() | Where-Object content -eq "vztmpl"
+    foreach ($node in $nodes) {
+        # Retrieve storage content
+        $storage = (Get-PveNodesStorageContent -Node $node.node -Storage local).ToData() | Where-Object { $_.content -eq "vztmpl" }
 
-        if ($storage.volid.count -ge 1) {
+        if ($storage.Count -ge 1) {
             Write-Host " "
-            Write-Host "Node ->" $node.node -ForegroundColor Yellow
+            Write-Host "Node -> $($node.node)" -ForegroundColor Yellow
             
-            foreach ($item in $storage)
-            {
+            foreach ($item in $storage) {
                 $templateName = ($item.volid).Split("/")[-1]
 
                 Write-Host "$nbr -> $templateName"
@@ -853,39 +862,36 @@ function Get-LXCTemplate {
         }
     }
 
-    if ($templates.volid.count -ge 1) {
+    if ($templates.Count -ge 1) {
         while ($true) {
-
             Write-Host " "
             $choix = $(Write-Host "Which system did you want to use for the deployment of your LXC? (Use the number to indicate the template). Press E to exit the function : " -ForegroundColor Yellow -NoNewline; Read-Host)
 
-            if ($choix -ge 1 -and $choix -le $templates.volid.count) {
-            
-                $choix = $choix - 1
-    
-                return $templates[$choix]
-            }
-            else {
-                if ($choix -eq "E")
-                {
-                    Show-MenuDeployVirtualMachine
-                    return
-                }
-                else {
+            # Validate input
+            if ($choix -match '^\d+$') {
+                $choix = [int]$choix
+                if ($choix -ge 1 -and $choix -le $templates.Count) {
+                    $choix = $choix - 1
+                    return $templates[$choix]
+                } else {
                     Write-Host " "
-                    Write-Host "Error : Please enter a valid number or 'E' to exit." -ForegroundColor Red
+                    Write-Host "Error : Please enter a number between 1 and $($templates.Count), or 'E' to exit." -ForegroundColor Red
                 }
+            } elseif ($choix -eq "E") {
+                Show-MenuDeployVirtualMachine
+                return
+            } else {
+                Write-Host " "
+                Write-Host "Error : Please enter a valid number or 'E' to exit." -ForegroundColor Red
             }
         }
-
-    }
-    else {
+    } else {
         Write-Host "Error : No template was found" -ForegroundColor Red
-
         Show-MenuDeployVirtualMachine
         return
     }
 }
+
 
 if (($PSVersionTable.PSVersion.Major) -ge 6) {
 

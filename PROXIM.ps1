@@ -61,7 +61,7 @@ function Show-Menu {
     # Display the menu options
     Write-Host "1 - " -ForegroundColor Green
     Write-Host "2 - Groups & Users" -ForegroundColor Green
-    Write-Host "3 - " -ForegroundColor Green
+    Write-Host "3 - Deploy LXC & VM" -ForegroundColor Green
     Write-Host "4 - Exit" -ForegroundColor Green
     Write-Host " "
 
@@ -73,7 +73,7 @@ function Show-Menu {
     switch ($choice) {
         1 { }
         2 { Show-GroupsUsersMenu }
-        3 {  }
+        3 { Show-MenuDeployVirtualMachine }
         4 { break }
         default {
             Write-Host " "
@@ -82,6 +82,42 @@ function Show-Menu {
             Show-Menu
         }
     }
+}
+
+function Show-MenuDeployVirtualMachine {
+    
+    # Display the menu header
+    Write-Host " "
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host "Please select an option:" -ForegroundColor Yellow
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host " "
+
+    # Display the menu options
+    Write-Host "1 - Deploying LXC Containers for a Group" -ForegroundColor Green
+    Write-Host "2 - " -ForegroundColor Green
+    Write-Host "3 - " -ForegroundColor Green
+    Write-Host "4 - Exit" -ForegroundColor Green
+    Write-Host " "
+
+    # Prompt the user for a choice
+    Write-Host "Enter your choice : " -ForegroundColor Yellow -NoNewline
+    $choice = Read-Host
+
+    # Process the user's choice
+    switch ($choice) {
+        1 { New-DeployLXCGroup }
+        2 {  }
+        3 {  }
+        4 { Show-Menu }
+        default {
+            Write-Host " "
+            Write-Host "Error: Invalid choice. Please try again !!!" -ForegroundColor Red
+            Write-Host " "
+            Show-MenuDeployVirtualMachine
+        }
+    }
+    
 }
 
 function Show-GroupsUsersMenu {
@@ -706,6 +742,149 @@ function Get-Welcome {
 
     # Optional: Add a pause to allow the user to read the welcome page
     #Read-Host "Press Enter to continue..."
+}
+
+function Get-GroupDeploy {
+    $nbr = 1
+    
+    $groups = (Get-PveAccessGroups).ToData()
+
+    if ($groups.Groupid.count -ge 1) {
+
+        Write-Host "Here are the groups that exist :" -ForegroundColor Yellow
+        Write-Host "=================================" -ForegroundColor Cyan
+
+        foreach($group in $groups)
+        {
+            Write-Host "$nbr -> $($group.Groupid)"
+            $nbr++
+        }
+
+        while ($true) {
+
+            Write-Host " "
+            $choix = $(Write-Host "Which group would you like to deploy virtual machines to? (Use the number to indicate the group). Press E to exit the function : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+            if ($choix -ge 0 -and $choix -le $groups.Groupid.Count) {
+            
+                $choix = $choix - 1
+    
+                return $groups.Groupid[$choix]
+            }
+            else {
+                if ($choix -eq "E")
+                {
+                    Show-MenuDeployVirtualMachine
+                    return
+                }
+                else {
+                    Write-Host " "
+                    Write-Host "Error : Please enter a valid number or 'E' to exit." -ForegroundColor Red
+                }
+            }
+        }
+    }
+    else {
+        Write-Host " "
+        Write-Host "Error : No group was found" -ForegroundColor Red
+
+        Show-MenuDeployVirtualMachine
+        return
+    }
+}
+
+function New-DeployLXCGroup {
+    
+    #$CPU = 1
+    #$RAM = 1024
+    #$Drive = "local-lvm:16"
+    #$Nic = ""
+
+
+    $groupName = Get-GroupDeploy
+
+    $ListPools = (Get-PvePools).ToData()
+
+    if ($ListPools | Where-Object poolid -eq $groupName)
+    {
+        #rien car le pool existe deja
+    }
+    else {
+        New-PvePools -Poolid $groupName
+    }
+
+    $Template = Get-LXCTemplate
+
+    Show-MenuDeployVirtualMachine
+    
+}
+
+function Get-LXCTemplate {
+    $nbr = 1
+    $templates = New-Object System.Collections.Generic.List[PSCustomObject]
+
+    $nodes = (Get-PveNodes).ToData()
+
+    Write-Host "Here are the templates that exist :" -ForegroundColor Yellow
+    Write-Host "====================================" -ForegroundColor Cyan
+
+    foreach ($node in $nodes)
+    {
+        $storage = (Get-PveNodesStorageContent -Node $node.node -Storage local).ToData() | Where-Object content -eq "vztmpl"
+
+        if ($storage.volid.count -ge 1) {
+            Write-Host " "
+            Write-Host "Node ->" $node.node -ForegroundColor Yellow
+            
+            foreach ($item in $storage)
+            {
+                $templateName = ($item.volid).Split("/")[-1]
+
+                Write-Host "$nbr -> $templateName"
+
+                $templates.Add([PSCustomObject]@{
+                    Index = $nbr
+                    Node = $node.node
+                    Volid = $item.volid
+                })
+
+                $nbr++
+            }
+        }
+    }
+
+    if ($templates.volid.count -ge 1) {
+        while ($true) {
+
+            Write-Host " "
+            $choix = $(Write-Host "Which system did you want to use for the deployment of your LXC? (Use the number to indicate the template). Press E to exit the function : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+            if ($choix -ge 1 -and $choix -le $templates.volid.count) {
+            
+                $choix = $choix - 1
+    
+                return $templates[$choix]
+            }
+            else {
+                if ($choix -eq "E")
+                {
+                    Show-MenuDeployVirtualMachine
+                    return
+                }
+                else {
+                    Write-Host " "
+                    Write-Host "Error : Please enter a valid number or 'E' to exit." -ForegroundColor Red
+                }
+            }
+        }
+
+    }
+    else {
+        Write-Host "Error : No template was found" -ForegroundColor Red
+
+        Show-MenuDeployVirtualMachine
+        return
+    }
 }
 
 if (($PSVersionTable.PSVersion.Major) -ge 6) {

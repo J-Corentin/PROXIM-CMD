@@ -795,10 +795,13 @@ function Get-GroupDeploy {
 
 function New-DeployLXCGroup {
     
-    #$CPU = 1
-    #$RAM = 1024
-    #$Drive = "local-lvm:16"
-    #$Nic = ""
+    $CPU = 1
+    $Ram = 1024
+    $HdSize = 16
+    $HdPath = "local-lvm"
+    $NicEth = "eth0"
+    $Nic = $null
+    $HDDrive = $null
 
 
     $groupName = Get-GroupDeploy
@@ -818,7 +821,40 @@ function New-DeployLXCGroup {
 
         $Template = Get-LXCTemplate
 
-        #voici la config de basse du conteneur
+        Clear-Host
+        Write-Host "Default Configuration for LXC :" -ForegroundColor Yellow
+        Write-Host "========================" -ForegroundColor Cyan
+        Write-Host "CPU -> $Cpu core(s)"
+        Write-Host "RAM -> $Ram MB"
+        Write-Host "Hard Disk -> $HdSize GB at $HdPath"
+        Write-Host "NIC -> $NicEth"
+        Write-Host "OS -> $(($Template.volid).Split("/")[-1])"
+
+        while ($true) {
+            Write-Host " "
+            $choice = $(Write-Host "Press 1 to use the default configuration, or press 2 to modify the values or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
+        
+            if ($choice -eq 1) {
+                $Nic = @{1='name=eth0,bridge=vmbr0,ip=dhcp'}
+                $HDDrive = $HdPath + ":" + $HdSize
+
+                break
+            }
+            elseif ($choice -eq 2) {
+                
+                #nbr de cpu a utiliser. Faut récupérer avant le max de cpu que peut la node
+
+                break
+            }
+            elseif ([string]::IsNullOrWhiteSpace($choice)) {
+                Show-MenuDeployVirtualMachine
+                return
+            }
+            else {
+                Write-Host " "
+                Write-Host "Error : Please enter a correct value" -ForegroundColor Red
+            }
+        }        
     }
     else {
         Write-Host "Error : The group $groupName does not contain any users." -ForegroundColor Red

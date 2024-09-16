@@ -751,6 +751,7 @@ function Get-GroupDeploy {
     $groups = (Get-PveAccessGroups).ToData()
     
     if ($groups.Groupid.Count -ge 1) {
+        Clear-Host
         Write-Host "Here are the groups that exist:" -ForegroundColor Yellow
         Write-Host "=================================" -ForegroundColor Cyan
 
@@ -792,6 +793,55 @@ function Get-GroupDeploy {
     }
 }
 
+function Get-CpuNbr { param ( [string]$NodeName )
+    $Maxcpu = (Get-PveNode -Node $NodeName).maxcpu
+
+    while ($true) {
+
+        $NbrCpu = 0
+
+        #Write-Host " "
+        Clear-Host
+        Write-Host "CPU Config :" -ForegroundColor Yellow
+        Write-Host "=============" -ForegroundColor Cyan
+        $choice = $(Write-Host "Please enter a number between 1 and $Maxcpu for the number of cores to assign to the LXC : " -ForegroundColor Yellow -NoNewline ; Read-Host) 
+
+        if ([int]::TryParse($choice, [ref]$NbrCpu) -and $NbrCpu -ge 1 -and $NbrCpu -le $Maxcpu) {
+            return $NbrCpu
+            break
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error : Please enter a valid value" -ForegroundColor Red
+        } 
+    }
+}
+
+function Get-Ram { param ( [string]$NodeName )
+
+    $Maxram = (Get-PveNode -Node $NodeName).maxmem
+
+    $Maxram = [Math]::Floor($Maxram / (1024 * 1024))
+
+    while ($true) {
+
+        $NbrRam = 0
+
+        Clear-Host
+        Write-Host "RAM Config :" -ForegroundColor Yellow
+        Write-Host "=============" -ForegroundColor Cyan
+        $choice = $(Write-Host "Please enter a number between 1 and $Maxram for the amount of RAM in MB to assign to the LXC : " -ForegroundColor Yellow -NoNewline ; Read-Host)
+
+        if ([int]::TryParse($choice, [ref]$NbrRam) -and $NbrRam -ge 1 -and $NbrRam -le $Maxram) {
+            return $NbrRam
+            break
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error : Please enter a valid value" -ForegroundColor Red
+        } 
+    }
+}
 
 function New-DeployLXCGroup {
     
@@ -802,9 +852,12 @@ function New-DeployLXCGroup {
     $NicEth = "eth0"
     $Nic = $null
     $HDDrive = $null
+    $Vmid = $null
 
 
     $groupName = Get-GroupDeploy
+    $Vmid = (Get-LastVMID) + 1
+    
 
 
     if ((Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members.count -ge 1)
@@ -823,11 +876,11 @@ function New-DeployLXCGroup {
 
         Clear-Host
         Write-Host "Default Configuration for LXC :" -ForegroundColor Yellow
-        Write-Host "========================" -ForegroundColor Cyan
+        Write-Host "===============================" -ForegroundColor Cyan
         Write-Host "CPU -> $Cpu core(s)"
         Write-Host "RAM -> $Ram MB"
         Write-Host "Hard Disk -> $HdSize GB at $HdPath"
-        Write-Host "NIC -> $NicEth"
+        Write-Host "NIC -> $NicEth (vmbr0)"
         Write-Host "OS -> $(($Template.volid).Split("/")[-1])"
 
         while ($true) {
@@ -842,7 +895,10 @@ function New-DeployLXCGroup {
             }
             elseif ($choice -eq 2) {
                 
-                #nbr de cpu a utiliser. Faut récupérer avant le max de cpu que peut la node
+                $CPU = Get-CpuNbr $Template.Node
+                $Ram = Get-Ram $Template.Node
+                $Nic = Get-Nic $Template.Node
+                $HDDrive = Get-disk $Template.Node
 
                 break
             }
@@ -871,15 +927,15 @@ function Get-LXCTemplate {
     # Retrieve node data
     $nodes = (Get-PveNodes).ToData()
 
+    Clear-Host
     Write-Host "Here are the templates that exist:" -ForegroundColor Yellow
-    Write-Host "====================================" -ForegroundColor Cyan
+    Write-Host "===================================" -ForegroundColor Cyan
 
     foreach ($node in $nodes) {
         # Retrieve storage content
         $storage = (Get-PveNodesStorageContent -Node $node.node -Storage local).ToData() | Where-Object { $_.content -eq "vztmpl" }
 
         if ($storage.Count -ge 1) {
-            Write-Host " "
             Write-Host "Node -> $($node.node)" -ForegroundColor Yellow
             
             foreach ($item in $storage) {
@@ -895,6 +951,8 @@ function Get-LXCTemplate {
 
                 $nbr++
             }
+
+            Write-Host " "
         }
     }
 
@@ -928,6 +986,183 @@ function Get-LXCTemplate {
     }
 }
 
+function Get-Nic { param ( [string]$NodeName )
+    $ListNic = (Get-PveNodesNetwork -node $NodeName).ToData() | Where-Object type -eq 'bridge'
+
+    $nbr = 1
+
+    Clear-Host
+    Write-Host "NIC on your Proxmox Server :" -ForegroundColor Yellow
+    Write-Host "=============================" -ForegroundColor Cyan
+
+    foreach($Nic in $ListNic)
+    {
+        Write-Host "$nbr -> $($Nic.iface)"
+        $nbr++
+    } 
+
+    $NicCount = $ListNic.Count
+    
+    while ($true) {
+        Write-Host " "
+        $choix = $(Write-Host "Choose a network card by providing its number : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choix -match '^\d+$')
+        {
+            $choix = [int]$choix
+
+            if ($choix -ge 1 -and $choix -le $NicCount) {
+                $choix = $choix - 1
+                $Nic = $ListNic[$choix]
+                break
+            }
+            else {
+                Write-Host " "
+                Write-Host "Error : Please enter a number between 1 and $NicCount." -ForegroundColor Red
+            }
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error : Please enter a valid number" -ForegroundColor Red
+        }
+    }
+
+    while ($true) {
+        Write-Host " "
+        $choix = $(Write-Host "Do you want to configure a VLAN on the network card ? (Y/N)" -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choix -eq "Y" -or $choix -eq "N") {
+
+            if ($choix -eq "Y") {
+                $vlan = Get-Vlan
+
+                $NetworkCard = @{1="name=eth0,bridge=$($Nic.iface),ip=dhcp,tag=$vlan"}
+                
+                return $NetworkCard
+            }
+
+            $NetworkCard = @{1="name=eth0,bridge=$($Nic.iface),ip=dhcp"}
+
+            Return $NetworkCard
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error : Please enter a valid value" -ForegroundColor Red
+        }
+        
+    }
+}
+
+function Get-Vlan {
+
+    while ($true) {
+
+        Write-Host " "
+        $choix = $(Write-Host "Please indicate the VLAN number to configure (1-4094) : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choix -match '^\d+$')
+        {
+            $choix = [int]$choix
+
+            if ($choix -ge 1 -and $choix -le 4094) {
+                return $choix
+                break
+            }
+            else {
+                Write-Host " "
+                Write-Host "Error : Please enter a number between 1 and 4094." -ForegroundColor Red
+            }
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error : Please enter a number between 1 and 4094." -ForegroundColor Red
+        }
+        
+    }
+}
+
+function Get-LastVMID {
+    
+    $maxVmid = (Get-PveVm).vmid | Measure-Object -Maximum | Select-Object -ExpandProperty Maximum
+    return $maxVmid
+}
+
+function Get-Disk { param ( [string]$NodeName )
+
+    $nbr = 1
+    $Disk = $null
+    $DiskSize = $null
+    
+    $Storages = (Get-PveNodesStorage -node $NodeName).ToData() | Where-Object {$_.content -eq "rootdir,images" -or $_.content -eq "images,rootdir"} | Sort-Object -Property storage
+
+    Clear-Host
+    Write-Host "Storage Pool available on your Proxmox server :" -ForegroundColor Yellow
+    Write-Host "================================================" -ForegroundColor Cyan
+
+    foreach ($Storage in $Storages)
+    {
+        Write-Host "$nbr -> $($Storage.storage)"
+        $nbr++
+    }
+
+    while ($true) {
+
+        Write-Host " "
+        $choix = $(Write-Host "Select the storage pool for your LXC container : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choix -match '^\d+$') {
+            $choix = [int]$choix
+
+            if ($choix -ge 1 -and $choix -le ($Storages.Count)) {
+                $choix = $choix -1
+
+                $Disk = $Storages[$choix]
+                $DiskSize = Get-SizeDisk
+
+                $Drive = "$($Disk.storage):$DiskSize"
+
+                return $Drive
+                break
+            }
+            else {
+                Write-Host " "
+                Write-Host "Error : Please enter a valid number" -ForegroundColor Red
+            }
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error : Please enter a valid number" -ForegroundColor Red
+        }
+    }
+}
+
+function Get-SizeDisk {
+    
+    
+
+    while ($true) {
+        Write-Host " "
+        $choix = $(Write-Host "Please indicate the size of the disk in GB (Min 8GB/ Max 32GB) : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choix -match '^\d+$')
+        {
+            $choix = [int]$choix
+
+            if ($choix -ge 8 -and $choix -le 32) {
+                return $choix
+                break
+            }
+            else {
+                Write-Host " "
+                Write-Host "Error : Please enter a number between 8GB and 32GB." -ForegroundColor Red
+            }
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error : Please enter a number between 8GB and 32GB." -ForegroundColor Red
+        }
+    }
+}
 
 if (($PSVersionTable.PSVersion.Major) -ge 6) {
 

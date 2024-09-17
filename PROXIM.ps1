@@ -5,7 +5,6 @@ function Find-Module {
     }
 }
 
-#ok
 function Get-PVECredential {
     while ($true) {
         $PVEIPServer = $(Write-Host "Enter the IP address of your Proxmox server : " -ForegroundColor Yellow -NoNewLine; Read-Host )
@@ -853,9 +852,11 @@ function New-DeployLXCGroup {
     $Nic = $null
     $HDDrive = $null
     $Vmid = $null
+    $Password = "ApplePie"
 
 
     $groupName = Get-GroupDeploy
+    $NbrDeployLXC = (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().Members.Count
     $Vmid = (Get-LastVMID) + 1
     
 
@@ -864,14 +865,10 @@ function New-DeployLXCGroup {
     {
         $ListPools = (Get-PvePools).ToData()
 
-        if ($ListPools | Where-Object poolid -eq $groupName)
-        {
-            #rien car le pool existe deja
-        }
-        else {
+        if (-not ($ListPools | Where-Object poolid -eq $groupName)) {
             $null = New-PvePools -Poolid $groupName
         }
-
+        
         $Template = Get-LXCTemplate
 
         Clear-Host
@@ -882,6 +879,7 @@ function New-DeployLXCGroup {
         Write-Host "Hard Disk -> $HdSize GB at $HdPath"
         Write-Host "NIC -> $NicEth (vmbr0)"
         Write-Host "OS -> $(($Template.volid).Split("/")[-1])"
+        Write-Host "Password -> $Password"
 
         while ($true) {
             Write-Host " "
@@ -899,8 +897,17 @@ function New-DeployLXCGroup {
                 $Ram = Get-Ram $Template.Node
                 $Nic = Get-Nic $Template.Node
                 $HDDrive = Get-disk $Template.Node
+                
+                if (Get-DiskSpaceOK -NodeName $Template.Node -HDDrive $HDDrive -NbrDeploy $NbrDeployLXC) {
+                    #format du nom
+                    $Password = Get-PasswordLXC
 
-                break
+                }
+                else {
+                    
+                    Write-Host "Error : Unable to create $NbrDeployLXC machines for the group $groupName" -ForegroundColor Red
+                    break
+                }
             }
             elseif ([string]::IsNullOrWhiteSpace($choice)) {
                 Show-MenuDeployVirtualMachine
@@ -913,6 +920,7 @@ function New-DeployLXCGroup {
         }        
     }
     else {
+        Write-Host " "
         Write-Host "Error : The group $groupName does not contain any users." -ForegroundColor Red
     }
 
@@ -1162,6 +1170,76 @@ function Get-SizeDisk {
             Write-Host "Error : Please enter a number between 8GB and 32GB." -ForegroundColor Red
         }
     }
+}
+
+function Get-DiskSpaceOK {param ([string]$NodeName, [string]$HDDrive, [int]$NbrDeploy)
+
+
+    $Disk = $HDDrive.Split(":")
+    
+    $SpaceRequired = [int]$Disk[1] * $NbrDeploy
+
+    $TypeDisk = (Get-PveNodesStorage -Node $NodeName).ToData() | Where-Object storage -eq $Disk[0]
+
+    if($TypeDisk.type -eq "lvmthin")
+    {
+        $DiskInfo = (Get-PveNodesStorage -Node $NodeName).ToData() | Where-Object { $_.storage -eq $Disk[0] }
+
+        $FreeSpace = [Math]::Floor($DiskInfo.avail / (1024 * 1024 * 1024))
+
+        if ($SpaceRequired -lt $FreeSpace) {
+            return $true
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error: There is not enough space to create all the machines. Free space -> $FreeSpace GB, Required space -> $SpaceRequired GB" -ForegroundColor Red
+            return $false
+        }
+    }
+    elseif ($TypeDisk.type -eq "zfspool") {
+
+        $DiskInfo = (Get-PveNodesStorage -Node $NodeName).ToData() | Where-Object { $_.storage -eq $Disk[0] }
+
+        $FreeSpace = [Math]::Floor($DiskInfo.avail / (1024 * 1024 * 1024))
+
+        if ($SpaceRequired -lt $FreeSpace) {
+            return $true
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error: There is not enough space to create all the machines. Free space -> $FreeSpace GB, Required space -> $SpaceRequired GB" -ForegroundColor Red
+            return $false
+        }
+        
+    }
+    else {
+        Write-Host " "
+        Write-Host "Error : The disk $($Disk[0]) is in the format $($TypeDisk.type). This format is not yet supported " -ForegroundColor Red
+    }
+    
+}
+
+function Get-PasswordLXC {
+    Clear-Host
+    Write-Host "Password Configuration :" -ForegroundColor Yellow
+    Write-Host "=========================" -ForegroundColor Cyan
+
+    while ($true) {
+        $choice = $(Write-Host "Please enter the password to set for the LXC (minimum of 5 characters long) : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choice.Length -ge 5) {
+            <# Action to perform if the condition is true #>
+
+            $Password = ConvertTo-SecureString $choice -AsPlainText -Force
+            return $Password
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error : The password must be at least 5 characters long" -ForegroundColor Red
+            Write-Host " "
+        }
+    }
+    
 }
 
 if (($PSVersionTable.PSVersion.Major) -ge 6) {

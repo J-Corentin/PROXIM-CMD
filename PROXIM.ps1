@@ -930,7 +930,6 @@ function New-DeployLXCGroup {
                 elseif ($nic.Values.split("=").split(",").count -eq 8) {
                     Write-Host "NIC -> $($nic.Values.split("=").split(",")[1]) (vmbr0) VLAN $($nic.Values.split("=").split(",")[7])"
                 }
-                $Nic
                 Write-Host "OS -> $(($Template.volid).Split("/")[-1])"
                 Write-Host "Name LXC -> $LXCName-VMID"
 

@@ -829,9 +829,9 @@ function Get-Ram { param ( [string]$NodeName )
         Clear-Host
         Write-Host "RAM Config :" -ForegroundColor Yellow
         Write-Host "=============" -ForegroundColor Cyan
-        $choice = $(Write-Host "Please enter a number between 1 and $Maxram for the amount of RAM in MB to assign to the LXC : " -ForegroundColor Yellow -NoNewline ; Read-Host)
+        $choice = $(Write-Host "Please enter a number between 512 and $Maxram for the amount of RAM in MB to assign to the LXC : " -ForegroundColor Yellow -NoNewline ; Read-Host)
 
-        if ([int]::TryParse($choice, [ref]$NbrRam) -and $NbrRam -ge 1 -and $NbrRam -le $Maxram) {
+        if ([int]::TryParse($choice, [ref]$NbrRam) -and $NbrRam -ge 512 -and $NbrRam -le $Maxram) {
             return $NbrRam
             break
         }
@@ -849,18 +849,20 @@ function New-DeployLXCGroup {
     $HdSize = 16
     $HdPath = "local-lvm"
     $NicEth = "eth0"
-    $Nic = $null
     $HDDrive = $null
-    $Vmid = $null
     $Password = "ApplePie"
-
+    $LXCName = $null
 
     $groupName = Get-GroupDeploy
+
+    if ($null -eq $groupName)
+    {
+        return
+    }
+
     $NbrDeployLXC = (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().Members.Count
     $Vmid = (Get-LastVMID) + 1
     
-
-
     if ((Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members.count -ge 1)
     {
         $ListPools = (Get-PvePools).ToData()
@@ -871,6 +873,8 @@ function New-DeployLXCGroup {
         
         $Template = Get-LXCTemplate
 
+        $LXCName = $Template.volid.Split("/")[1].Split("-")[0]
+
         Clear-Host
         Write-Host "Default Configuration for LXC :" -ForegroundColor Yellow
         Write-Host "===============================" -ForegroundColor Cyan
@@ -880,6 +884,7 @@ function New-DeployLXCGroup {
         Write-Host "NIC -> $NicEth (vmbr0)"
         Write-Host "OS -> $(($Template.volid).Split("/")[-1])"
         Write-Host "Password -> $Password"
+        Write-Host "Name LXC -> $LXCName-VMID"
 
         while ($true) {
             Write-Host " "
@@ -888,26 +893,92 @@ function New-DeployLXCGroup {
             if ($choice -eq 1) {
                 $Nic = @{1='name=eth0,bridge=vmbr0,ip=dhcp'}
                 $HDDrive = $HdPath + ":" + $HdSize
+                $Password = ConvertTo-SecureString $Password -AsPlainText -Force
+
+                Clear-Host
+
+                foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
+                {
+                    $name = $LXCName + "-" + $Vmid
+                    $command = Set-LXC -NodeName $Template.Node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Ostemplate $Template.volid -Vmid $Vmid -LXCName $name -Password $Password -Nic $Nic 
+
+                    if ($true -eq $command) {
+                        $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
+                    }
+
+                    $Vmid++
+                }
 
                 break
             }
             elseif ($choice -eq 2) {
-                
                 $CPU = Get-CpuNbr $Template.Node
                 $Ram = Get-Ram $Template.Node
                 $Nic = Get-Nic $Template.Node
                 $HDDrive = Get-disk $Template.Node
-                
-                if (Get-DiskSpaceOK -NodeName $Template.Node -HDDrive $HDDrive -NbrDeploy $NbrDeployLXC) {
-                    #format du nom
-                    $Password = Get-PasswordLXC
 
+                Clear-Host
+                Write-Host "Custom Configuration for LXC :" -ForegroundColor Yellow
+                Write-Host "===============================" -ForegroundColor Cyan
+                Write-Host "CPU -> $Cpu core(s)"
+                Write-Host "RAM -> $Ram MB"
+                Write-Host "Hard Disk -> $($HDDrive.split(":")[1]) GB at $($HDDrive.split(":")[0])"
+                if($nic.Values.split("=").split(",").count -eq 6)
+                {
+                    Write-Host "NIC -> $($nic.Values.split("=").split(",")[1]) (vmbr0)"
                 }
-                else {
-                    
-                    Write-Host "Error : Unable to create $NbrDeployLXC machines for the group $groupName" -ForegroundColor Red
-                    break
+                elseif ($nic.Values.split("=").split(",").count -eq 8) {
+                    Write-Host "NIC -> $($nic.Values.split("=").split(",")[1]) (vmbr0) VLAN $($nic.Values.split("=").split(",")[7])"
                 }
+                $Nic
+                Write-Host "OS -> $(($Template.volid).Split("/")[-1])"
+                Write-Host "Name LXC -> $LXCName-VMID"
+
+                while ($true) {
+                    Write-Host " "
+                    $choix = $(Write-Host "Is the configuration correct? (Y/N)" -ForegroundColor Yellow -NoNewline; Read-Host)
+            
+                    if ($choix -eq "Y" -or $choix -eq "N") {
+            
+                        if ($choix -eq "Y") {
+                            if (Get-DiskSpaceOK -NodeName $Template.Node -HDDrive $HDDrive -NbrDeploy $NbrDeployLXC) {
+                                $Password = Get-PasswordLXC
+
+                                Clear-Host
+
+                                foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
+                                {
+                                    $name = $LXCName + "-" + $Vmid
+                                    $Nic= "hello"
+                                    $command = Set-LXC -NodeName $Template.Node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Ostemplate $Template.volid -Vmid $Vmid -LXCName $name -Password $Password -Nic $Nic -21 "Hello"
+
+                                    if ($true -eq $command) {
+                                        $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
+                                    }
+
+                                    $Vmid++
+                                }
+                            }
+                            else {
+                                Write-Host "Error : Unable to create $NbrDeployLXC machines for the group $groupName" -ForegroundColor Red
+                                break
+                            }   
+
+                            break
+                        }
+                        else {
+                            Show-MenuDeployVirtualMachine
+                            break
+                        }
+            
+                        break
+                    }
+                    else {
+                        Write-Host " "
+                        Write-Host "Error : Please enter a valid value" -ForegroundColor Red
+                    }
+                }
+                break
             }
             elseif ([string]::IsNullOrWhiteSpace($choice)) {
                 Show-MenuDeployVirtualMachine
@@ -926,6 +997,24 @@ function New-DeployLXCGroup {
 
     Show-MenuDeployVirtualMachine
     
+}
+
+function Set-LXC { param ([string]$NodeName, [int]$Cpu, [int]$Ram, [string]$HDDrive, [string]$Ostemplate, [int]$Vmid,[System.Security.SecureString]$Password, [string]$LXCName, [string]$21 )
+
+    #$Nic
+    $21
+
+    <#$command = New-PvenodesLxc -Node $NodeName -Vmid $Vmid -Ostemplate $Ostemplate -Cores $Cpu -Memory $Ram -Rootfs $HDDrive -NetN $Nic -Password $Password -Hostname $LXCName
+
+    #/if ($command.IsSuccessStatusCode -eq $true)
+    {
+        Write-Host "Succes : The LXC container $LXCName has been successfully created" -ForegroundColor Green
+        return $true
+    }
+    else {
+        Write-Host "Error : The LXC container $LXCName cannot be created -> $($command.ReasonPhrase)" -ForegroundColor Red
+        return $false
+    }#>
 }
 
 function Get-LXCTemplate {

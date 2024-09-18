@@ -949,8 +949,7 @@ function New-DeployLXCGroup {
                                 foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
                                 {
                                     $name = $LXCName + "-" + $Vmid
-                                    $Nic= "hello"
-                                    $command = Set-LXC -NodeName $Template.Node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Ostemplate $Template.volid -Vmid $Vmid -LXCName $name -Password $Password -Nic $Nic -21 "Hello"
+                                    $command = Set-LXC -NodeName $Template.Node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Ostemplate $Template.volid -Vmid $Vmid -LXCName $name -Password $Password -Nic $Nic
 
                                     if ($true -eq $command) {
                                         $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
@@ -999,14 +998,11 @@ function New-DeployLXCGroup {
     
 }
 
-function Set-LXC { param ([string]$NodeName, [int]$Cpu, [int]$Ram, [string]$HDDrive, [string]$Ostemplate, [int]$Vmid,[System.Security.SecureString]$Password, [string]$LXCName, [string]$21 )
+function Set-LXC { param ([string]$NodeName, [int]$Cpu, [int]$Ram, [string]$HDDrive, [string]$Ostemplate, [int]$Vmid,[System.Security.SecureString]$Password, [string]$LXCName, [hashtable]$Nic )
 
-    #$Nic
-    $21
+    $command = New-PvenodesLxc -Node $NodeName -Vmid $Vmid -Ostemplate $Ostemplate -Cores $Cpu -Memory $Ram -Rootfs $HDDrive -NetN $Nic -Password $Password -Hostname $LXCName
 
-    <#$command = New-PvenodesLxc -Node $NodeName -Vmid $Vmid -Ostemplate $Ostemplate -Cores $Cpu -Memory $Ram -Rootfs $HDDrive -NetN $Nic -Password $Password -Hostname $LXCName
-
-    #/if ($command.IsSuccessStatusCode -eq $true)
+    if ($command.IsSuccessStatusCode -eq $true)
     {
         Write-Host "Succes : The LXC container $LXCName has been successfully created" -ForegroundColor Green
         return $true
@@ -1014,7 +1010,7 @@ function Set-LXC { param ([string]$NodeName, [int]$Cpu, [int]$Ram, [string]$HDDr
     else {
         Write-Host "Error : The LXC container $LXCName cannot be created -> $($command.ReasonPhrase)" -ForegroundColor Red
         return $false
-    }#>
+    }
 }
 
 function Get-LXCTemplate {

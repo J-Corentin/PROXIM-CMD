@@ -747,7 +747,7 @@ function Get-GroupDeploy {
     $nbr = 1
     
     # Retrieve groups and convert to Data
-    $groups = (Get-PveAccessGroups).ToData()
+    $groups = (Get-PveAccessGroups).ToData() | Sort-Object -Property Groupid
     
     if ($groups.Groupid.Count -ge 1) {
         Clear-Host
@@ -891,22 +891,28 @@ function New-DeployLXCGroup {
             $choice = $(Write-Host "Press 1 to use the default configuration, or press 2 to modify the values or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
         
             if ($choice -eq 1) {
-                $Nic = @{1='name=eth0,bridge=vmbr0,ip=dhcp'}
+                $Nic = @{1='name=eth0,firewall=1,bridge=vmbr0,ip=dhcp'}
                 $HDDrive = $HdPath + ":" + $HdSize
                 $Password = ConvertTo-SecureString $Password -AsPlainText -Force
 
                 Clear-Host
 
-                foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
+                if (Get-DiskSpaceOK -NodeName $Template.Node -HDDrive $HDDrive -NbrDeploy $NbrDeployLXC)
                 {
-                    $name = $LXCName + "-" + $Vmid
-                    $command = Set-LXC -NodeName $Template.Node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Ostemplate $Template.volid -Vmid $Vmid -LXCName $name -Password $Password -Nic $Nic 
+                    foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
+                    {
+                        $name = $LXCName + "-" + $Vmid
+                        $command = Set-LXC -NodeName $Template.Node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Ostemplate $Template.volid -Vmid $Vmid -LXCName $name -Password $Password -Nic $Nic -group $groupName
 
-                    if ($true -eq $command) {
-                        $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
+                        if ($true -eq $command) {
+                            $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
+                        }
+
+                        $Vmid++
                     }
-
-                    $Vmid++
+                }
+                else {
+                    Write-Host "Error : Unable to create $NbrDeployLXC machines for the group $groupName" -ForegroundColor Red
                 }
 
                 break
@@ -914,8 +920,8 @@ function New-DeployLXCGroup {
             elseif ($choice -eq 2) {
                 $CPU = Get-CpuNbr $Template.Node
                 $Ram = Get-Ram $Template.Node
-                $Nic = Get-Nic $Template.Node
-                $HDDrive = Get-disk $Template.Node
+                $Nic = Get-NicLXC $Template.Node
+                $HDDrive = Get-DiskLxc $Template.Node
 
                 Clear-Host
                 Write-Host "Custom Configuration for LXC :" -ForegroundColor Yellow
@@ -948,7 +954,7 @@ function New-DeployLXCGroup {
                                 foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
                                 {
                                     $name = $LXCName + "-" + $Vmid
-                                    $command = Set-LXC -NodeName $Template.Node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Ostemplate $Template.volid -Vmid $Vmid -LXCName $name -Password $Password -Nic $Nic
+                                    $command = Set-LXC -NodeName $Template.Node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Ostemplate $Template.volid -Vmid $Vmid -LXCName $name -Password $Password -Nic $Nic -group $groupName
 
                                     if ($true -eq $command) {
                                         $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
@@ -997,9 +1003,9 @@ function New-DeployLXCGroup {
     
 }
 
-function Set-LXC { param ([string]$NodeName, [int]$Cpu, [int]$Ram, [string]$HDDrive, [string]$Ostemplate, [int]$Vmid,[System.Security.SecureString]$Password, [string]$LXCName, [hashtable]$Nic )
+function Set-LXC { param ([string]$NodeName, [int]$Cpu, [int]$Ram, [string]$HDDrive, [string]$Ostemplate, [int]$Vmid,[System.Security.SecureString]$Password, [string]$LXCName, [hashtable]$Nic, [string]$group )
 
-    $command = New-PvenodesLxc -Node $NodeName -Vmid $Vmid -Ostemplate $Ostemplate -Cores $Cpu -Memory $Ram -Rootfs $HDDrive -NetN $Nic -Password $Password -Hostname $LXCName
+    $command = New-PvenodesLxc -Node $NodeName -Vmid $Vmid -Ostemplate $Ostemplate -Cores $Cpu -Memory $Ram -Rootfs $HDDrive -NetN $Nic -Password $Password -Hostname $LXCName -Pool $group
 
     if ($command.IsSuccessStatusCode -eq $true)
     {
@@ -1078,7 +1084,7 @@ function Get-LXCTemplate {
     }
 }
 
-function Get-Nic { param ( [string]$NodeName )
+function Get-NicLXC { param ( [string]$NodeName )
     $ListNic = (Get-PveNodesNetwork -node $NodeName).ToData() | Where-Object type -eq 'bridge'
 
     $nbr = 1
@@ -1128,12 +1134,12 @@ function Get-Nic { param ( [string]$NodeName )
             if ($choix -eq "Y") {
                 $vlan = Get-Vlan
 
-                $NetworkCard = @{1="name=eth0,bridge=$($Nic.iface),ip=dhcp,tag=$vlan"}
+                $NetworkCard = @{1="name=eth0,firewall=1,bridge=$($Nic.iface),ip=dhcp,tag=$vlan"}
                 
                 return $NetworkCard
             }
 
-            $NetworkCard = @{1="name=eth0,bridge=$($Nic.iface),ip=dhcp"}
+            $NetworkCard = @{1="name=eth0,firewall=1,bridge=$($Nic.iface),ip=dhcp"}
 
             Return $NetworkCard
         }
@@ -1179,7 +1185,7 @@ function Get-LastVMID {
     return $maxVmid
 }
 
-function Get-Disk { param ( [string]$NodeName )
+function Get-DiskLxc { param ( [string]$NodeName, [bool]$NoSetSize )
 
     $nbr = 1
     $Disk = $null
@@ -1209,9 +1215,16 @@ function Get-Disk { param ( [string]$NodeName )
                 $choix = $choix -1
 
                 $Disk = $Storages[$choix]
-                $DiskSize = Get-SizeDisk
 
-                $Drive = "$($Disk.storage):$DiskSize"
+                if($true -eq $NoSetSize)
+                {
+                    $Drive = $Disk.storage
+                }else
+                {
+                    $DiskSize = Get-SizeDisk
+
+                    $Drive = "$($Disk.storage):$DiskSize"
+                }
 
                 return $Drive
                 break
@@ -1301,6 +1314,52 @@ function Get-DiskSpaceOK {param ([string]$NodeName, [string]$HDDrive, [int]$NbrD
         Write-Host "Error : The disk $($Disk[0]) is in the format $($TypeDisk.type). This format is not yet supported " -ForegroundColor Red
     }
     
+}
+
+function Get-TemplateClone {
+    $nbr = 1
+    $ListTemplate = (Get-PveVm) | Where-Object template -eq 1
+
+    if ($ListTemplate.count -ge 1)
+    {
+        Clear-Host
+        Write-Host "Template that exists on your Proxmox :" -ForegroundColor Yellow
+        Write-Host "=======================================" -ForegroundColor Cyan
+
+        foreach($Template in $ListTemplate)
+        {
+            Write-Host "$nbr -> $($Template.name) type $($Template.type)"
+            $nbr++
+        }
+
+        while ($true) {
+            Write-Host " "
+            $choix = $(Write-Host "Please choose a template ! (Use the number to indicate the template): " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+            # Handle numeric input
+            if ($choix -match '^\d+$') {
+                $choix = [int]$choix
+                $ListTemplateCount = $ListTemplate.Count
+
+                if ($choix -ge 1 -and $choix -le $ListTemplateCount) {
+                    $choix = $choix - 1
+                    return $ListTemplate[$choix]
+                } else {
+                    Write-Host " "
+                    Write-Host "Error : Please enter a number between 1 and $ListTemplateCount." -ForegroundColor Red
+                }
+            } else {
+                Write-Host " "
+                Write-Host "Error : Please enter a valid number." -ForegroundColor Red
+            }
+        }
+    }
+    else {
+        Write-Host " "
+        Write-Host "Error : No template was found" -ForegroundColor Red
+        Show-MenuDeployVirtualMachine
+        return
+    }   
 }
 
 function Get-PasswordLXC {

@@ -94,7 +94,7 @@ function Show-MenuDeployVirtualMachine {
 
     # Display the menu options
     Write-Host "1 - Deploying LXC Containers for a Group" -ForegroundColor Green
-    Write-Host "2 - " -ForegroundColor Green
+    Write-Host "2 - Deploying Template (VM or LXC) for a Group" -ForegroundColor Green
     Write-Host "3 - " -ForegroundColor Green
     Write-Host "4 - Exit" -ForegroundColor Green
     Write-Host " "
@@ -106,7 +106,7 @@ function Show-MenuDeployVirtualMachine {
     # Process the user's choice
     switch ($choice) {
         1 { New-DeployLXCGroup }
-        2 {  }
+        2 { New-CloneTemplate }
         3 {  }
         4 { Show-Menu }
         default {
@@ -1383,6 +1383,512 @@ function Get-PasswordLXC {
         }
     }
     
+}
+
+function Get-TemplateClone {
+    $nbr = 1
+    $ListTemplate = (Get-PveVm) | Where-Object template -eq 1 | Sort-Object name
+
+    if ($ListTemplate.count -ge 1)
+    {
+        Clear-Host
+        Write-Host "Template that exists on your Proxmox :" -ForegroundColor Yellow
+        Write-Host "=======================================" -ForegroundColor Cyan
+
+        foreach($Template in $ListTemplate)
+        {
+            Write-Host "$nbr -> $($Template.name) Type -> $($Template.type)"
+            $nbr++
+        }
+
+        while ($true) {
+            Write-Host " "
+            $choix = $(Write-Host "Please choose a template ! (Use the number to indicate the template): " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+            if ($choix -match '^\d+$') {
+                $choix = [int]$choix
+                $ListTemplateCount = $ListTemplate.Count
+
+                if ($choix -ge 1 -and $choix -le $ListTemplateCount) {
+                    $choix = $choix - 1
+                    return $ListTemplate[$choix]
+                } else {
+                    Write-Host " "
+                    Write-Host "Error : Please enter a number between 1 and $ListTemplateCount." -ForegroundColor Red
+                }
+            } else {
+                Write-Host " "
+                Write-Host "Error : Please enter a valid number." -ForegroundColor Red
+            }
+        }
+    }
+    else {
+        Write-Host " "
+        Write-Host "Error : No template was found" -ForegroundColor Red
+        Show-MenuDeployVirtualMachine
+        return
+    }   
+}
+
+function New-CloneTemplate {
+    $groupName = Get-GroupDeploy
+
+    if($null -eq $groupName)
+    {
+        Show-MenuDeployVirtualMachine
+        return
+    }
+
+    $NbrDeploy = (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().Members.Count
+    $Template = Get-TemplateClone
+    $Vmid = (Get-LastVMID) + 1
+    $networkInterfaces = @()
+
+    if($Template.type -eq "lxc")
+    {
+        $LxcConfig = (Get-PveNodesLxcConfig -Node $Template.node -Vmid $Template.vmid).ToData()
+
+        foreach($line in $LxcConfig.PSObject.Properties)
+        {
+            if ($line.Name -match '^net\d+$') {
+                $networkInterfaces += $line.Value
+            }
+        }
+
+        Clear-Host
+        Write-Host "Template Clone LXC Config :" -ForegroundColor Yellow
+        Write-Host "===========================" -ForegroundColor Cyan
+        Write-Host "CPU -> $($LxcConfig.cores) core(s)"
+        Write-Host "RAM -> $($LxcConfig.memory) MB"
+        Write-Host "Hard Disk -> $($LxcConfig.rootfs.Split(":").Split(",").Split("=")[-1]) GB at $($LxcConfig.rootfs.Split(":")[0])"
+
+        if ($networkInterfaces.Count -ge 1) {
+        
+            foreach($Nic in $networkInterfaces)
+            {
+                if($Nic.Split(",").Count -eq 7)
+                {
+                    if($Nic.Split(",").Split("=")[10] -eq "tag")
+                    {
+                        Write-Host "NIC -> $($nic.split("=").split(",")[1]) VLAN $($nic.split("=").split(",")[11])"
+                    }
+                    else {
+                        Write-Host "NIC -> $($nic.split("=").split(",")[1])"
+                    }
+                }
+                elseif($Nic.Split(",").Count -eq 8)
+                {
+                    if($Nic.Split(",").Split("=")[12] -eq "tag")
+                    {
+                        Write-Host "NIC -> $($nic.split("=").split(",")[1]) VLAN $($nic.split("=").split(",")[13])"
+                    }
+                    else {
+                        Write-Host "NIC -> $($nic.split("=").split(",")[1])"
+                    }
+                }
+                else {
+                    Write-Host "NIC -> $($nic.split("=").split(",")[1])"
+                }
+            }
+        }
+        else {
+            Write-Host "Nic -> No network card found"
+        }
+
+        Write-Host "OS -> $($LxcConfig.ostype)"
+        Write-Host "Name LXC -> $($LxcConfig.ostype)-VMID"
+        
+
+        while ($true) {
+            Write-Host " "
+            $choice = $(Write-Host "Press 1 to use the curent configuration, or press 2 to modify storage Pool or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+            if ($choice -eq 1)
+            {
+                Clear-Host
+                $HDDrive = "$($LxcConfig.rootfs.Split(":")[0]):$($LxcConfig.rootfs.Split(":").Split(",").Split("=")[-1].Replace("G", " "))"
+
+                if (Get-DiskSpaceOK -NodeName $Template.Node -HDDrive $HDDrive -NbrDeploy $NbrDeploy)
+                {
+                    foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
+                    {
+                        $name = $LxcConfig.ostype + "-" + $Vmid
+
+                        $command = New-CloneLXCTemplate -LxcConfig $LxcConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName
+
+                        if ($true -eq $command) {
+                            $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
+                        }   
+                        $Vmid++
+                    }
+                }
+                else {
+                    Write-Host "Error : Unable to create $NbrDeploy machines for the group $groupName" -ForegroundColor Red
+                }
+
+                break
+            }
+            elseif ($choice -eq 2) {
+                
+                $Disk = Get-DiskLxc -NodeName $Template.node -NoSetSize $true
+
+                while ($true) {
+                    Write-Host " "
+                    $choix = $(Write-Host "Are you sure to use the storage pool $Disk for the deployment? (Y/N)" -ForegroundColor Yellow -NoNewline; Read-Host)
+
+                    if ($choix -eq "Y" -or $choix -eq "N") {
+            
+                        if ($choix -eq "Y") {
+
+                            $HDDrive = "$($Disk):$($LxcConfig.rootfs.Split(":").Split(",").Split("=")[-1].Replace("G", " "))"
+
+                            if (Get-DiskSpaceOK -NodeName $Template.Node -HDDrive $HDDrive -NbrDeploy $NbrDeploy) {
+
+                                Clear-Host
+
+                                foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
+                                {
+                                    $name = $LxcConfig.ostype + "-" + $Vmid
+
+                                    $command = New-CloneLXCTemplate -LxcConfig $LxcConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -Storage $Disk
+
+                                    if ($true -eq $command) {
+                                        $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
+                                    }   
+                                    $Vmid++
+                                }
+                            }
+                            else {
+                                Write-Host "Error : Unable to create $NbrDeploy machines for the group $groupName" -ForegroundColor Red
+                                break
+                            }   
+
+                            break
+                        }
+                        else {
+                            Show-MenuDeployVirtualMachine
+                            break
+                        }
+            
+                        break
+                    }
+                    else {
+                        Write-Host " "
+                        Write-Host "Error : Please enter a valid value" -ForegroundColor Red
+                    }
+                }
+
+                break
+            }
+            elseif ([string]::IsNullOrWhiteSpace($choice)) {
+                Show-MenuDeployVirtualMachine
+                return
+            }
+            else {
+                Write-Host " "
+                Write-Host "Error : Please enter a correct value" -ForegroundColor Red
+            }
+        }
+
+        Show-MenuDeployVirtualMachine
+        return
+    }
+    elseif($Template.type -eq "qemu")
+    {
+        $QemuConfig = (Get-PveNodesQemuConfig -Node $Template.node -Vmid $Template.vmid).ToData()
+
+        $ListDisks = $QemuConfig.PSObject.Properties | Where-Object {
+            $_.Value -match "vm-$($Template.vmid)-disk" -or $_.Value -match "base-$($Template.vmid)-disk" -and
+            $_.Name -notmatch "efidisk\d+" -and $_.Name -notmatch "tpmstate\d+"
+        }
+        
+        foreach($line in $QemuConfig.PSObject.Properties)
+        {
+            if ($line.Name -match '^net\d+$') {
+                $networkInterfaces += $line.Value
+            }
+        }
+
+        $NbrDisk = 1
+        $NbrNic = 1
+
+
+        Clear-Host
+        Write-Host "Template Clone VM Config :" -ForegroundColor Yellow
+        Write-Host "===========================" -ForegroundColor Cyan
+        Write-Host "CPU -> $($QemuConfig.cores) core(s)"
+        Write-Host "RAM -> $($QemuConfig.memory) MB"
+
+        foreach($Disk in $ListDisks)
+        {
+            Write-Host "Hard Disk $NbrDisk-> $($Disk.value.Split("=")[-1].Replace("G", " "))GB at $($Disk.value.Split(":")[0])"
+
+            $NbrDisk++
+        }
+
+        if ($networkInterfaces.Count -ge 1) {
+        
+            foreach($Nic in $networkInterfaces)
+            {
+                if($Nic.Split(",").Count -eq 4)
+                {
+                    if($Nic.Split(",").Split("=")[6] -eq "tag")
+                    {
+                        Write-Host "NIC $NbrNic-> $($nic.split("=").split(",")[3]) VLAN $($nic.split("=").split(",")[7])"
+                    }
+                    else {
+                        Write-Host "NIC $NbrNic-> $($nic.split("=").split(",")[3])"
+                    }
+                }
+                elseif($Nic.Split(",").Count -eq 3)
+                {
+                    if($Nic.Split(",").Split("=")[4] -eq "tag")
+                    {
+                        Write-Host "NIC $NbrNic-> $($nic.split("=").split(",")[3]) VLAN $($nic.split("=").split(",")[5])"
+                    }
+                    else {
+                        Write-Host "NIC $NbrNic-> $($nic.split("=").split(",")[3]) "
+                    }
+                }
+                else {
+                    Write-Host "NIC $NbrNic-> $($nic.split("=").split(",")[3]) (vmbr0)"
+                }
+
+                $NbrNic++
+            }
+        }
+        else {
+            Write-Host "Nic -> No network card found"
+        }
+
+        Write-Host "OS -> $($QemuConfig.ostype)"
+        Write-Host "Name VM -> $($QemuConfig.ostype)-VMID"
+
+
+        while ($true) {
+            Write-Host " "
+            $choice = $(Write-Host "Press 1 to use the curent configuration, or press 2 to modify storage Pool or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+
+            if ($choice -eq 1)
+            {
+                Clear-Host
+
+                $SystemDisk = $QemuConfig.PSObject.Properties | Where-Object {
+                    $_.Value -match "base-$($Template.vmid)-disk" -and
+                    $_.Name -notmatch "efidisk\d+" -and $_.Name -notmatch "tpmstate\d+"
+                }
+
+                $HDDrive = "$($SystemDisk.value.Split(":")[0]):$($SystemDisk.value.Split("=")[-1].Replace("G", " "))"
+
+                if (Get-DiskSpaceOK -NodeName $Template.Node -HDDrive $HDDrive -NbrDeploy $NbrDeploy)
+                {
+                    Clear-Host
+
+                    foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
+                    {
+                        $name = $QemuConfig.ostype + "-" + $Vmid
+
+                        $command = New-CloneVMTemplate -QemuConfig $QemuConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName
+
+                        if ($true -eq $command) {
+                            $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
+                        }   
+                        $Vmid++
+                    }
+                }
+                else {
+                    Write-Host "Error : Unable to create $NbrDeploy machines for the group $groupName" -ForegroundColor Red
+                }
+                    
+                Break
+            }
+            elseif ($choice -eq 2) {
+
+                $Disk = Get-DiskVM -NodeName $Template.node -NoSetSize $true
+
+                while ($true) {
+                    Write-Host " "
+                    $choix = $(Write-Host "Are you sure to use the storage pool $Disk for the deployment? (Y/N)" -ForegroundColor Yellow -NoNewline; Read-Host)
+
+                    if ($choix -eq "Y" -or $choix -eq "N") {
+            
+                        if ($choix -eq "Y") {
+
+                            Clear-Host
+
+                            $SystemDisk = $QemuConfig.PSObject.Properties | Where-Object {
+                                $_.Value -match "base-$($Template.vmid)-disk" -and
+                                $_.Name -notmatch "efidisk\d+" -and $_.Name -notmatch "tpmstate\d+"
+                            }
+
+                            $HDDrive = "$($Disk):$($SystemDisk.value.Split("=")[-1].Replace("G", " "))"
+
+                            if (Get-DiskSpaceOK -NodeName $Template.Node -HDDrive $HDDrive -NbrDeploy $NbrDeploy)
+                            {
+                                Clear-Host
+
+                                foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
+                                {
+                                    $name = $QemuConfig.ostype + "-" + $Vmid
+
+                                    $command = New-CloneVMTemplate -QemuConfig $QemuConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -Storage $Disk
+
+                                    if ($true -eq $command) {
+                                        $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
+                                    }   
+                                    $Vmid++
+                                }
+                            }
+                            else {
+                                Write-Host "Error : Unable to create $NbrDeploy machines for the group $groupName" -ForegroundColor Red
+                                break
+                            }   
+
+                            break
+                        }
+                        else {
+                            Show-MenuDeployVirtualMachine
+                            break
+                        }
+            
+                        break
+                    }
+                    else {
+                        Write-Host " "
+                        Write-Host "Error : Please enter a valid value" -ForegroundColor Red
+                    }
+                }
+
+                Break
+            }
+            elseif ([string]::IsNullOrWhiteSpace($choice)) {
+                Show-MenuDeployVirtualMachine
+                return
+            }
+            else {
+                Write-Host " "
+                Write-Host "Error : Please enter a correct value" -ForegroundColor Red
+            }
+        }
+
+        Show-MenuDeployVirtualMachine
+        return
+
+    }
+    else {
+        Write-Host " "
+        Write-Host "Error : The type $($Template.type) is currently not supported" -ForegroundColor Red
+    }
+    
+}
+
+function New-CloneVMTemplate {param ($QemuConfig, $Template, [string]$name, [int]$Vmid, [string]$groupName, [string]$Storage)
+    
+    if($null -eq $Storage)
+    {
+        $command = New-PveNodesQemuClone -Node $Template.node -Full -name $name -Newid $Vmid -Vmid $Template.vmid -Pool $groupName
+    }
+    else {
+        $command = New-PveNodesQemuClone -Node $Template.node -Full -name $name -Newid $Vmid -Vmid $Template.vmid -Pool $groupName -Storage $Storage
+    }
+
+    if ($true -eq $command.IsSuccessStatusCode) {
+        Write-Host "Succes : The VM $Name has been successfully created" -ForegroundColor Green
+        return $true
+    }
+    else {
+        Write-Host "Error : The VM $name cannot be created -> $($command.ReasonPhrase)" -ForegroundColor Red
+        return $false
+    }
+}
+
+
+function New-CloneLXCTemplate {param ($LxcConfig, $Template, [string]$name, [int]$Vmid, [string]$groupName, [string]$Storage )
+
+    if($null -eq $Storage)
+    {
+        $Storage = $LxcConfig.rootfs.Split(":")[0]
+    }
+
+    $command = New-PveNodesLxcClone -Node $Template.node -Full -Hostname $name -Newid $Vmid -Storage $Storage -Vmid $Template.vmid -Pool $groupName
+
+    while ($true) {
+        if ($command.ReasonPhrase -eq "CT is locked (disk)" )
+        {
+            Start-Sleep -Seconds 2
+            $command = New-PveNodesLxcClone -Node $Template.node -Full -Hostname $name -Newid $Vmid -Storage $Storage -Vmid $Template.vmid -Pool $groupName
+        }
+        else{
+            break
+        }
+    }
+
+    if ($true -eq $command.IsSuccessStatusCode) {
+        Write-Host "Succes : The LXC container $Name has been successfully created" -ForegroundColor Green
+        return $true
+    }
+    else {
+        Write-Host "Error : The LXC container $name cannot be created -> $($command.ReasonPhrase)" -ForegroundColor Red
+        return $false
+    }
+}
+
+
+function Get-DiskVM { param ( [string]$NodeName, [bool]$NoSetSize )
+
+    $nbr = 1
+    $Disk = $null
+    $DiskSize = $null
+    
+    $Storages = (Get-PveNodesStorage -node $NodeName).ToData() | Where-Object {$_.content -eq "rootdir,images" -or $_.content -eq "images,rootdir"} | Sort-Object -Property storage
+
+    Clear-Host
+    Write-Host "Storage Pool available on your Proxmox server :" -ForegroundColor Yellow
+    Write-Host "================================================" -ForegroundColor Cyan
+
+    foreach ($Storage in $Storages)
+    {
+        Write-Host "$nbr -> $($Storage.storage)"
+        $nbr++
+    }
+
+    while ($true) {
+
+        Write-Host " "
+        $choix = $(Write-Host "Select the storage pool for your VM : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choix -match '^\d+$') {
+            $choix = [int]$choix
+
+            if ($choix -ge 1 -and $choix -le ($Storages.Count)) {
+                $choix = $choix -1
+
+                $Disk = $Storages[$choix]
+
+                if($true -eq $NoSetSize)
+                {
+                    $Drive = $Disk.storage
+                }else
+                {
+                    $DiskSize = Get-SizeDisk
+
+                    $Drive = "$($Disk.storage):$DiskSize"
+                }
+
+                return $Drive
+                break
+            }
+            else {
+                Write-Host " "
+                Write-Host "Error : Please enter a valid number" -ForegroundColor Red
+            }
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error : Please enter a valid number" -ForegroundColor Red
+        }
+    }
 }
 
 if (($PSVersionTable.PSVersion.Major) -ge 6) {

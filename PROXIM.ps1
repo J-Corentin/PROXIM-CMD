@@ -94,8 +94,8 @@ function Show-MenuDeployVirtualMachine {
 
     # Display the menu options
     Write-Host "1 - Deploying LXC Containers for a Group" -ForegroundColor Green
-    Write-Host "2 - Deploying Template (VM or LXC) for a Group" -ForegroundColor Green
-    Write-Host "3 - " -ForegroundColor Green
+    Write-Host "2 - Deploying Qemu VM for a Group" -ForegroundColor Green
+    Write-Host "3 - Deploying Template (VM or LXC) for a Group" -ForegroundColor Green
     Write-Host "4 - Exit" -ForegroundColor Green
     Write-Host " "
 
@@ -106,8 +106,8 @@ function Show-MenuDeployVirtualMachine {
     # Process the user's choice
     switch ($choice) {
         1 { New-DeployLXCGroup }
-        2 { New-CloneTemplate }
-        3 {  }
+        2 { New-DeployQemuGroup }
+        3 { New-CloneTemplate }
         4 { Show-Menu }
         default {
             Write-Host " "
@@ -1221,7 +1221,7 @@ function Get-DiskLxc { param ( [string]$NodeName, [bool]$NoSetSize )
                     $Drive = $Disk.storage
                 }else
                 {
-                    $DiskSize = Get-SizeDisk
+                    $DiskSize = Get-SizeDiskLXC
 
                     $Drive = "$($Disk.storage):$DiskSize"
                 }
@@ -1241,7 +1241,7 @@ function Get-DiskLxc { param ( [string]$NodeName, [bool]$NoSetSize )
     }
 }
 
-function Get-SizeDisk {
+function Get-SizeDiskLXC {
     
     
 
@@ -1443,6 +1443,7 @@ function New-CloneTemplate {
     $Template = Get-TemplateClone
     $Vmid = (Get-LastVMID) + 1
     $networkInterfaces = @()
+    $FullClone = Get-FullClone
 
     if($Template.type -eq "lxc")
     {
@@ -1514,7 +1515,7 @@ function New-CloneTemplate {
                     {
                         $name = $LxcConfig.ostype + "-" + $Vmid
 
-                        $command = New-CloneLXCTemplate -LxcConfig $LxcConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName
+                        $command = New-CloneLXCTemplate -LxcConfig $LxcConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -FullClone $FullClone
 
                         if ($true -eq $command) {
                             $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
@@ -1550,7 +1551,7 @@ function New-CloneTemplate {
                                 {
                                     $name = $LxcConfig.ostype + "-" + $Vmid
 
-                                    $command = New-CloneLXCTemplate -LxcConfig $LxcConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -Storage $Disk
+                                    $command = New-CloneLXCTemplate -LxcConfig $LxcConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -Storage $Disk -FullClone $FullClone
 
                                     if ($true -eq $command) {
                                         $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
@@ -1651,7 +1652,7 @@ function New-CloneTemplate {
                     }
                 }
                 else {
-                    Write-Host "NIC $NbrNic-> $($nic.split("=").split(",")[3]) (vmbr0)"
+                    Write-Host "NIC $NbrNic-> $($nic.split("=").split(",")[3])"
                 }
 
                 $NbrNic++
@@ -1689,7 +1690,7 @@ function New-CloneTemplate {
                     {
                         $name = $QemuConfig.ostype + "-" + $Vmid
 
-                        $command = New-CloneVMTemplate -QemuConfig $QemuConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName
+                        $command = New-CloneVMTemplate -QemuConfig $QemuConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -FullClone $FullClone
 
                         if ($true -eq $command) {
                             $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
@@ -1732,7 +1733,7 @@ function New-CloneTemplate {
                                 {
                                     $name = $QemuConfig.ostype + "-" + $Vmid
 
-                                    $command = New-CloneVMTemplate -QemuConfig $QemuConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -Storage $Disk
+                                    $command = New-CloneVMTemplate -QemuConfig $QemuConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -Storage $Disk -FullClone $FullClone
 
                                     if ($true -eq $command) {
                                         $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
@@ -1783,14 +1784,29 @@ function New-CloneTemplate {
     
 }
 
-function New-CloneVMTemplate {param ($QemuConfig, $Template, [string]$name, [int]$Vmid, [string]$groupName, [string]$Storage)
+function New-CloneVMTemplate {param ($QemuConfig, $Template, [string]$name, [int]$Vmid, [string]$groupName, [string]$Storage, $FullClone)
     
     if($null -eq $Storage)
     {
-        $command = New-PveNodesQemuClone -Node $Template.node -Full -name $name -Newid $Vmid -Vmid $Template.vmid -Pool $groupName
+        if($true -eq $FullClone)
+        {
+            $command = New-PveNodesQemuClone -Node $Template.node -Full -name $name -Newid $Vmid -Vmid $Template.vmid -Pool $groupName
+        }
+        else
+        {
+            $command = New-PveNodesQemuClone -Node $Template.node -name $name -Newid $Vmid -Vmid $Template.vmid -Pool $groupName
+        }
     }
     else {
-        $command = New-PveNodesQemuClone -Node $Template.node -Full -name $name -Newid $Vmid -Vmid $Template.vmid -Pool $groupName -Storage $Storage
+
+        if($true -eq $FullClone)
+        {
+            $command = New-PveNodesQemuClone -Node $Template.node -Full -name $name -Newid $Vmid -Vmid $Template.vmid -Pool $groupName -Storage $Storage
+        }
+        else
+        {
+            $command = New-PveNodesQemuClone -Node $Template.node -name $name -Newid $Vmid -Vmid $Template.vmid -Pool $groupName -Storage $Storage
+        }
     }
 
     if ($true -eq $command.IsSuccessStatusCode) {
@@ -1803,21 +1819,31 @@ function New-CloneVMTemplate {param ($QemuConfig, $Template, [string]$name, [int
     }
 }
 
-
-function New-CloneLXCTemplate {param ($LxcConfig, $Template, [string]$name, [int]$Vmid, [string]$groupName, [string]$Storage )
+function New-CloneLXCTemplate {param ($LxcConfig, $Template, [string]$name, [int]$Vmid, [string]$groupName, [string]$Storage, $FullClone )
 
     if($null -eq $Storage)
     {
         $Storage = $LxcConfig.rootfs.Split(":")[0]
     }
 
-    $command = New-PveNodesLxcClone -Node $Template.node -Full -Hostname $name -Newid $Vmid -Storage $Storage -Vmid $Template.vmid -Pool $groupName
+
+    if ($true -eq $FullClone) {
+        $command = New-PveNodesLxcClone -Node $Template.node -Full -Hostname $name -Newid $Vmid -Storage $Storage -Vmid $Template.vmid -Pool $groupName
+    }
+    else {
+        $command = New-PveNodesLxcClone -Node $Template.node -Hostname $name -Newid $Vmid -Storage $Storage -Vmid $Template.vmid -Pool $groupName
+    }
 
     while ($true) {
         if ($command.ReasonPhrase -eq "CT is locked (disk)" )
         {
             Start-Sleep -Seconds 2
-            $command = New-PveNodesLxcClone -Node $Template.node -Full -Hostname $name -Newid $Vmid -Storage $Storage -Vmid $Template.vmid -Pool $groupName
+            if ($true -eq $FullClone) {
+                $command = New-PveNodesLxcClone -Node $Template.node -Full -Hostname $name -Newid $Vmid -Storage $Storage -Vmid $Template.vmid -Pool $groupName
+            }
+            else {
+                $command = New-PveNodesLxcClone -Node $Template.node -Hostname $name -Newid $Vmid -Storage $Storage -Vmid $Template.vmid -Pool $groupName
+            }
         }
         else{
             break
@@ -1833,7 +1859,6 @@ function New-CloneLXCTemplate {param ($LxcConfig, $Template, [string]$name, [int
         return $false
     }
 }
-
 
 function Get-DiskVM { param ( [string]$NodeName, [bool]$NoSetSize )
 
@@ -1871,7 +1896,7 @@ function Get-DiskVM { param ( [string]$NodeName, [bool]$NoSetSize )
                     $Drive = $Disk.storage
                 }else
                 {
-                    $DiskSize = Get-SizeDisk
+                    $DiskSize = Get-SizeDiskQemu
 
                     $Drive = "$($Disk.storage):$DiskSize"
                 }
@@ -1887,6 +1912,465 @@ function Get-DiskVM { param ( [string]$NodeName, [bool]$NoSetSize )
         else {
             Write-Host " "
             Write-Host "Error : Please enter a valid number" -ForegroundColor Red
+        }
+    }
+}
+
+function Get-FullClone {
+    
+    while ($true) {
+        Write-Host " "
+        $choice = $(Write-Host "Enter 1 to make a full clone, otherwise 2 to make a linked clone : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choice -eq 1) {
+            return $true
+            break
+        }
+        elseif ($choice -eq 2) {
+            return $false
+            break
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error : Please enter a valid value" -ForegroundColor Red
+        }
+    }
+}
+
+function New-DeployQemuGroup {
+    $ListNodesOK =@()
+    $NodesList =@()
+    $CPU = 2
+    $Ram = 2048
+    $NicEth = "vmbr0"
+    $NicType = "virtio"
+    $HDDrive = @{ 1 = 'local-lvm:32' }
+    $Name
+
+    $groupName = Get-GroupDeploy
+
+    if ($null -eq $groupName) {
+        return
+    }
+
+    $NbrDeployQemu = (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().Members.Count
+    $Vmid = (Get-LastVMID) + 1
+
+    if ((Get-PveAccessGroupsIdx -Groupid $groupName).ToData().Members.Count -ge 1) {
+        $ListPools = (Get-PvePools).ToData()
+
+        if (-not ($ListPools | Where-Object { $_.poolid -eq $groupName })) {
+            $null = New-PvePools -Poolid $groupName
+        }
+
+        $NameVM = Get-NameQemu
+
+        Clear-Host
+        Write-Host "Default Configuration for VM :" -ForegroundColor Yellow
+        Write-Host "===============================" -ForegroundColor Cyan
+        Write-Host "CPU -> $CPU core(s)"
+        Write-Host "RAM -> $Ram MB"
+        Write-Host "Hard Disk -> $($HDDrive[1].split(":")[1]) GB at $($HDDrive[1].split(":")[0])"
+        Write-Host "NIC -> $NicEth - $NicType"
+        Write-Host "Name VM -> $NameVM-VMID"
+
+        while ($true) {
+            Write-Host " "
+            $choice = $(Write-Host "Press 1 to use the default configuration, or press 2 to modify the values or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+            if ($choice -eq 1) {
+                $Nic = @{ 1 = "model=virtio,bridge=vmbr0,firewall=1" }
+                $ListNodes = (Get-PveNodes).ToData().node
+                $ListNodesOk = @()
+
+                foreach ($node in $ListNodes) {
+                    if (Get-DiskSpaceOK -NodeName $node -HDDrive $HDDrive[1] -NbrDeploy $NbrDeployQemu) {
+                        $ListNodesOk += $node
+                    }
+                }
+
+                if ($ListNodesOk.Count -ge 1) {
+                    Clear-Host
+
+                    foreach ($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().Members) {
+                        $name = $NameVM + "-" + $Vmid
+
+                        if ($ListNodesOk.Count -eq 1) {
+                            $node = $ListNodesOk[0]
+                        } 
+                        else {
+                            $node = $ListNodesOk[((Get-Random -Minimum 1 -Maximum $ListNodesOk.Count) - 1)]
+                        }
+
+                        $command = Set-Qemu -NodeName $node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Vmid $Vmid -QemuVMName $name -Nic $Nic -group $groupName
+
+                        if ($true -eq $command) {
+                            $null = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path "/vms/$Vmid"
+                        }
+
+                        $Vmid++
+                    }
+                } 
+                else {
+                    Write-Host "Error : Unable to create $NbrDeployQemu machines for the group $groupName" -ForegroundColor Red
+                }
+
+                break
+
+            } elseif ($choice -eq 2) {
+
+                $node = Get-NodeQemu
+                $CPU = Get-CpuNbr -NodeName $node
+                $HDDrive = @{ 1 = (Get-DiskVM -NodeName $node) }
+                $Ram = Get-Ram -NodeName $node
+                $Nic = Get-NicQemu -NodeName $node
+                $DynamicDeploy = Get-DynamicDeploy
+
+                Clear-Host
+                Write-Host "Custom Configuration for VM :" -ForegroundColor Yellow
+                Write-Host "===============================" -ForegroundColor Cyan
+                Write-Host "CPU -> $CPU core(s)"
+                Write-Host "RAM -> $Ram MB"
+                Write-Host "Hard Disk -> $($HDDrive[1].split(":")[1]) GB at $($HDDrive[1].split(":")[0])"
+
+                if($Nic[1].Split(",").Count -eq 4)
+                {
+                    Write-Host "NIC -> $($Nic[1].Split(",").Split("=")[3]) VLAN $($Nic[1].Split(",").Split("=")[7]) TYPE $($Nic[1].Split(",").Split("=")[3])"
+                }
+                else {
+                    Write-Host "NIC -> $($Nic[1].Split(",").Split("=")[3]) TYPE $($Nic[1].Split(",").Split("=")[3])"
+                }
+
+                Write-Host "Name VM -> $NameVM-VMID"
+
+                while ($true) {
+                    Write-Host " "
+                    $choix = $(Write-Host "Is the configuration correct? (Y/N)" -ForegroundColor Yellow -NoNewline; Read-Host)
+            
+                    if ($choix -eq "Y" -or $choix -eq "N") {
+            
+                        if ($choix -eq "Y") {
+
+                            if($true -eq $DynamicDeploy)
+                            {
+                                $ListNodes = (Get-PveNodes).ToData().node
+
+                                foreach($node in $ListNodes)
+                                {
+                                    if((Get-PveNodesStorage -Node $node).ToData() | Where-Object storage -eq $($HDDrive[1].split(":")[0]))
+                                    {
+                                        $NodesList += $node
+                                    }
+                                }
+                            }
+                            else{
+                                $NodesList += $node
+                            }
+
+                            foreach ($node in $NodesList) {
+                                if (Get-DiskSpaceOK -NodeName $node -HDDrive $HDDrive[1] -NbrDeploy $NbrDeployQemu) {
+                                    $ListNodesOk += $node
+                                }
+                            }
+
+                            if ($ListNodesOk.Count -ge 1) {
+                                Clear-Host
+            
+                                foreach ($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().Members) {
+                                    $name = $NameVM + "-" + $Vmid
+            
+                                    if ($ListNodesOk.Count -eq 1) {
+                                        $node = $ListNodesOk[0]
+                                    } 
+                                    else {
+                                        $node = $ListNodesOk[((Get-Random -Minimum 1 -Maximum $ListNodesOk.Count) - 1)]
+                                    }
+            
+                                    $command = Set-Qemu -NodeName $node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Vmid $Vmid -QemuVMName $name -Nic $Nic -group $groupName
+            
+                                    if ($true -eq $command) {
+                                        $null = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path "/vms/$Vmid"
+                                    }
+            
+                                    $Vmid++
+                                }
+                            } 
+                            else {
+                                Write-Host "Error : Unable to create $NbrDeployQemu machines for the group $groupName" -ForegroundColor Red
+                            }
+            
+                            break
+                        }
+                        else {
+                            Show-MenuDeployVirtualMachine
+                            break
+                        }
+            
+                        break
+                    }
+                    else {
+                        Write-Host " "
+                        Write-Host "Error : Please enter a valid value" -ForegroundColor Red
+                    }
+                }
+                break
+
+            } elseif ([string]::IsNullOrWhiteSpace($choice)) {
+
+                Show-MenuDeployVirtualMachine
+                return
+
+            } else {
+                Write-Host " "
+                Write-Host "Error : Please enter a correct value" -ForegroundColor Red
+            }
+        }
+    } else {
+        Write-Host " "
+        Write-Host "Error : The group $groupName does not contain any users." -ForegroundColor Red
+    }
+
+    Show-MenuDeployVirtualMachine
+}
+
+function Set-Qemu {param ([string]$NodeName, [int]$Cpu, [int]$Ram, $HDDrive, [int]$Vmid, [string]$QemuVMName, [hashtable]$Nic, [string]$group)
+
+    $command = New-PveNodesQemu -Node $NodeName -SataN $HDDrive -Cores $Cpu -Cpu "host" -Memory $Ram -name $QemuVMName -NetN $Nic -Vmid $Vmid -Machine "q35" -Efidisk0 "$($HDDrive[1].split(":")[0]):1" -Tpmstate0 "$($HDDrive[1].split(":")[0]):1" -Bios "ovmf" -Scsihw "virtio-scsi-single" 
+
+    if ($command.IsSuccessStatusCode -eq $true) {
+        Write-Host "Success : The VM $QemuVMName has been successfully created" -ForegroundColor Green
+        $null = Set-PvePools -Poolid $group -Vms $Vmid
+        return $true
+    } else {
+        Write-Host "Error : The VM $QemuVMName cannot be created -> $($command.ReasonPhrase)" -ForegroundColor Red
+        return $false
+    }
+}
+
+function Get-NodeQemu {
+    Clear-Host
+
+    $nbr = 1
+    $ListNodes = (Get-PveNodes).ToData()
+
+    if($ListNodes.node.count -eq 1)
+    {
+        return $ListNodes.node
+    }
+    else {
+        Write-Host "Proxmox server available in your cluster :" -ForegroundColor Yellow
+        Write-Host "===============================" -ForegroundColor Cyan
+        foreach($node in $ListNodes.node)
+        {
+            Write-Host "$nbr -> $node"
+            $nbr++
+        }
+
+        while ($true) {
+            Write-Host " "
+            $choice = $(Write-Host "Please select a node : " -ForegroundColor Yellow -NoNewline; Read-Host)
+    
+            if ($choice -match '^\d+$') {
+                $choice = [int]$choice
+    
+                $NodesCount = $ListNodes.node.Groupid.Count
+    
+                if ($choice -ge 1 -and $choice -le $NodesCount) {
+                    $choice = $choice - 1
+                    return $ListNodes.node[$choice]
+                    break
+                } else {
+                    Write-Host " "
+                    Write-Host "Error : Please enter a number between 1 and $NodesCount, or 'E' to exit." -ForegroundColor Red
+                }
+            } elseif ($choix -eq "E") {
+                Show-MenuDeployVirtualMachine
+                return
+                break
+            } else {
+                Write-Host " "
+                Write-Host "Error : Please enter a valid number or 'E' to exit." -ForegroundColor Red
+            }
+        }
+    }
+}
+
+function Get-NicQemu {param ([string]$NodeName)
+
+    $Vlan = $null
+    $Type = $null
+    $Nic = $null
+    $NetworkCard = $null
+
+    $ListNic = (Get-PveNodesNetwork -node $NodeName).ToData() | Where-Object { $_.type -eq 'bridge' }
+
+    $nbr = 1
+
+    Clear-Host
+    Write-Host "NIC on your Proxmox Server :" -ForegroundColor Yellow
+    Write-Host "=============================" -ForegroundColor Cyan
+
+    foreach ($Nic in $ListNic) {
+        Write-Host "$nbr -> $($Nic.iface)"
+        $nbr++
+    }
+
+    $NicCount = $ListNic.Count
+
+    while ($true) {
+        Write-Host " "
+        $choix = $(Write-Host "Choose a network card by providing its number : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choix -match '^\d+$') {
+            $choix = [int]$choix
+
+            if ($choix -ge 1 -and $choix -le $NicCount) {
+                $choix = $choix - 1
+                $Nic = $ListNic[$choix]
+                break
+            } else {
+                Write-Host " "
+                Write-Host "Error : Please enter a number between 1 and $NicCount." -ForegroundColor Red
+            }
+        } else {
+            Write-Host " "
+            Write-Host "Error : Please enter a valid number" -ForegroundColor Red
+        }
+    }
+
+    while ($true) {
+        Write-Host " "
+        $choix = $(Write-Host "Do you want to configure a VLAN on the network card ? (Y/N)" -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choix -eq "Y" -or $choix -eq "N") {
+            if ($choix -eq "Y") {
+                $Vlan = Get-Vlan
+            }
+            break
+        } else {
+            Write-Host " "
+            Write-Host "Error : Please enter a valid value" -ForegroundColor Red
+        }
+    }
+
+    Clear-Host
+    Write-Host "Network card model available :" -ForegroundColor Yellow
+    Write-Host "==============================" -ForegroundColor Cyan
+    Write-Host "1 -> e1000"
+    Write-Host "2 -> e1000e"
+    Write-Host "3 -> rtl8139"
+    Write-Host "4 -> virtio"
+    Write-Host "5 -> vmxnet3"
+
+    while ($true) {
+        Write-Host " "
+        $choix = $(Write-Host "Choose a network card model : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choix -gt 0 -and $choix -le 5) {
+            switch ($choix) {
+                1 { $Type = "e1000" }
+                2 { $Type = "e1000e" }
+                3 { $Type = "rtl8139" }
+                4 { $Type = "virtio" }
+                5 { $Type = "vmxnet3" }
+            }
+            break
+        } else {
+            Write-Host " "
+            Write-Host "Error : Please enter a valid number" -ForegroundColor Red
+        }
+    }
+
+    if ($null -eq $Vlan) {
+        $NetworkCard = @{1 = "model=$Type,bridge=$($Nic.iface),firewall=1" }
+    } else {
+        $NetworkCard = @{1 = "model=$Type,bridge=$($Nic.iface),firewall=1,tag=$Vlan" }
+    }
+
+    return $NetworkCard
+}
+
+function Get-NameQemu {
+    while ($true) {
+        Write-Host " "
+        $choix = $(Write-Host "Choose a name for the VM : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if($choix.Length -gt 3)
+        {
+            if ($userName -notmatch "[^a-zA-Z0-9-_]")
+            {
+                return $choix
+                break
+            }
+            else {
+                Write-Host " "
+                Write-Host "Error : Your VM name contains special characters" -ForegroundColor Red
+            }
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error : The length of the VM name must be a minimum of 3 characters" -ForegroundColor Red
+        }
+    }
+}
+
+function Get-DynamicDeploy {
+    $ListNodes = (Get-PveNodes).ToData()
+
+    if($ListNodes.node.count -eq 1)
+    {
+        return $false
+    }
+    else {
+        Clear-Host
+
+        while ($true) {
+            $choice = $(Write-Host "Did you want to perform a Dynamic deployment to distribute the workload across all the nodes in your system? (Y/N) : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+            if ($choice -eq "Y" -or $choice -eq "N") {
+
+                if ($choix -eq "Y") {
+                    return $true
+                }
+                else {
+                    return $false
+                }
+                
+                break
+            }
+            else {
+                Write-Host " "
+                Write-Host "Error : Please enter a valid value" -ForegroundColor Red
+            }
+        }
+    }
+    
+}
+
+function Get-SizeDiskQemu {
+    
+    
+
+    while ($true) {
+        Write-Host " "
+        $choix = $(Write-Host "Please indicate the size of the disk in GB (Min 8GB/ Max 64GB) : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choix -match '^\d+$')
+        {
+            $choix = [int]$choix
+
+            if ($choix -ge 8 -and $choix -le 64) {
+                return $choix
+                break
+            }
+            else {
+                Write-Host " "
+                Write-Host "Error : Please enter a number between 8GB and 64GB." -ForegroundColor Red
+            }
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error : Please enter a number between 8GB and 64GB." -ForegroundColor Red
         }
     }
 }

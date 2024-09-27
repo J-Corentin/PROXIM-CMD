@@ -1048,8 +1048,6 @@ function New-DeployLXCGroup {
                 $Ram = Get-Ram $Template.Node
                 $Nic = Get-NicLXC $Template.Node
 
-                #$HDDrive = Get-DiskLxc $Template.Node
-
                 $diskLxc = Get-Disk -NodeName $Template.Node -type "rootdir"
                 $sizeDiskLxc = Get-SizeDiskLXC
                 $HDDrive = "$($diskLxc.Storage):$($sizeDiskLxc)"
@@ -1509,7 +1507,6 @@ function New-CloneTemplate {
     $Template = Get-TemplateClone
     $Vmid = (Get-LastVMID) + 1
     $networkInterfaces = @()
-    #$FullClone = Get-FullClone
     $FullClone = $true
 
     if($Template.type -eq "lxc")
@@ -2079,6 +2076,7 @@ function Get-FullClone {
 }
 
 function New-DeployQemuGroup {
+    $nodeIndex = 0
     $ListNodesOK =@()
     $NodesList =@()
     $CPU = 2
@@ -2121,7 +2119,7 @@ function New-DeployQemuGroup {
 
             if ($choice -eq 1) {
                 $Nic = @{ 1 = "model=virtio,bridge=vmbr0,firewall=1" }
-                $ListNodes = (Get-PveNodes).ToData().node
+                $ListNodes = ((Get-PveNodes).ToData() | Sort-Object -Property node).node
                 $ListNodesOk = @()
 
                 foreach ($node in $ListNodes) {
@@ -2129,6 +2127,7 @@ function New-DeployQemuGroup {
                         $ListNodesOk += $node
                     }
                 }
+
 
                 if ($ListNodesOk.Count -ge 1) {
                     Clear-Host
@@ -2140,7 +2139,8 @@ function New-DeployQemuGroup {
                             $node = $ListNodesOk[0]
                         } 
                         else {
-                            $node = $ListNodesOk[((Get-Random -Minimum 1 -Maximum $ListNodesOk.Count) - 1)]
+                            #$node = $ListNodesOk[((Get-Random -Minimum 1 -Maximum $ListNodesOk.Count) - 1)]
+                            $node = $ListNodesOk[$nodeIndex]
                         }
 
                         $command = Set-Qemu -NodeName $node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Vmid $Vmid -QemuVMName $name -Nic $Nic -group $groupName
@@ -2150,6 +2150,7 @@ function New-DeployQemuGroup {
                         }
 
                         $Vmid++
+                        $nodeIndex = ($nodeIndex + 1) % $ListNodesOk.Count
                     }
                 } 
                 else {
@@ -2159,9 +2160,6 @@ function New-DeployQemuGroup {
                 break
 
             } elseif ($choice -eq 2) {
-
-                #$node = Get-NodeQemu
-                #$HDDrive = @{ 1 = (Get-DiskVM -NodeName $node) }
 
                 $diskQemu = Get-Disk -type "images"
                 $node = $diskQemu.node
@@ -2201,7 +2199,7 @@ function New-DeployQemuGroup {
 
                             if($true -eq $DynamicDeploy)
                             {
-                                $ListNodes = (Get-PveNodes).ToData().node
+                                $ListNodes = ((Get-PveNodes).ToData() | Sort-Object -Property node).node
 
                                 foreach($node in $ListNodes)
                                 {
@@ -2231,7 +2229,7 @@ function New-DeployQemuGroup {
                                         $node = $ListNodesOk[0]
                                     } 
                                     else {
-                                        $node = $ListNodesOk[((Get-Random -Minimum 1 -Maximum $ListNodesOk.Count) - 1)]
+                                        $node = $ListNodesOk[$nodeIndex]
                                     }
             
                                     $command = Set-Qemu -NodeName $node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Vmid $Vmid -QemuVMName $name -Nic $Nic -group $groupName
@@ -2241,6 +2239,7 @@ function New-DeployQemuGroup {
                                     }
             
                                     $Vmid++
+                                    $nodeIndex = ($nodeIndex + 1) % $ListNodesOk.Count
                                 }
                             } 
                             else {

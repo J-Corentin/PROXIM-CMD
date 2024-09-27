@@ -1,53 +1,79 @@
+# Function to find a specific PowerShell module
 function Find-Module {
+
+    # Check if the module "Corsinvest.ProxmoxVE.Api" is available
     if ($null -eq (Get-Module -ListAvailable | Where-Object { $_.Name -eq "Corsinvest.ProxmoxVE.Api" })) {
+        # If the module is not found, display an error message and return false
         Write-Host "Error: Module not found, please install this PowerShell module Corsinvest.ProxmoxVE.Api" -ForegroundColor Red
-        break
+        return $false
+    }
+    else {
+        # If the module is found, return true
+        return $true
     }
 }
 
+# Function to get Proxmox VE credentials
 function Get-PVECredential {
+    # Loop to ensure a valid IP address is entered
     while ($true) {
+        # Prompt user to enter the IP address of the Proxmox server
         $PVEIPServer = $(Write-Host "Enter the IP address of your Proxmox server : " -ForegroundColor Yellow -NoNewLine; Read-Host )
 
+        # Check if the entered IP address is valid
         if ($PVEIPServer -notmatch '^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$') {
+            # Display error message if the IP address is invalid
             Write-Host "Error : Invalid IP address. Please enter a valid IP address." -ForegroundColor Red
-        } 
+        }
         else {
+            # Break the loop if the IP address is valid
             break
         }
     }
 
+    # Prompt user to choose authentication method
     $choice = $(Write-Host "For authentication using an API Token, enter '0'; otherwise, leave it blank : " -ForegroundColor Yellow -NoNewline; Read-Host )
 
+    # If the user chooses API Token authentication
     if ($choice -eq '0') {
+        # Prompt user to enter the API Token
         $PVEApiKey = $(Write-Host "Enter your API Token : " -ForegroundColor Yellow -NoNewline; Read-Host -AsSecureString)
 
         try {
+            # Attempt to connect to the Proxmox server using the API Token
             $PveTicket = Connect-PveCluster -HostsAndPorts $PVEIPServer -ApiToken ([Net.NetworkCredential]::new('', $PVEApiKey).Password) -SkipCertificateCheck -ErrorAction Stop
-        } 
-        catch 
-        {
+        }
+        catch {
+            # Display error message if the connection fails
             Write-Host "Error: $_" -ForegroundColor Red
+            # Recall the function to prompt the user again
             Get-PVECredential
         }
 
+        # Return the connection ticket
         return $PveTicket
-    } 
+    }
     else {
-        $PVEUserName = $(Write-Host "Enter your user name : " -ForegroundColor Yellow -NoNewline; Read-Host)  
+        # Prompt user to enter the username
+        $PVEUserName = $(Write-Host "Enter your user name : " -ForegroundColor Yellow -NoNewline; Read-Host)
 
         try {
+            # Attempt to connect to the Proxmox server using the username and password
             $PveTicket = Connect-PveCluster -HostsAndPorts $PVEIPServer -Credentials (Get-Credential -UserName $PVEUserName) -SkipCertificateCheck -ErrorAction Stop
-        } 
+        }
         catch {
+            # Display error message if the connection fails
             Write-Host "Error: $_" -ForegroundColor Red
+            # Recall the function to prompt the user again
             Get-PVECredential
         }
 
+        # Return the connection ticket
         return $PveTicket
     }
 }
 
+#Function to show Home menu
 function Show-Menu {
 
     # Display the menu header
@@ -70,19 +96,33 @@ function Show-Menu {
 
     # Process the user's choice
     switch ($choice) {
-        1 { }
-        2 { Show-GroupsUsersMenu }
-        3 { Show-MenuDeployVirtualMachine }
-        4 { break }
+        1 {
+            # Placeholder for option 1
+        }
+        2 {
+            # Call the function to show the Groups & Users menu
+            Show-GroupsUsersMenu
+        }
+        3 {
+            # Call the function to show the Deploy Virtual Machine menu
+            Show-MenuDeployVirtualMachine
+        }
+        4 {
+            # Exit the menu
+            break
+        }
         default {
+            # Display an error message for invalid choices
             Write-Host " "
             Write-Host "Error: Invalid choice. Please try again !!!" -ForegroundColor Red
             Write-Host " "
+            # Recall the menu function to prompt the user again
             Show-Menu
         }
     }
 }
 
+#Function to show Deploy VM or LXC menu
 function Show-MenuDeployVirtualMachine {
     
     # Display the menu header
@@ -115,10 +155,10 @@ function Show-MenuDeployVirtualMachine {
             Write-Host " "
             Show-MenuDeployVirtualMachine
         }
-    }
-    
+    } 
 }
 
+#Function to show Users and Groups management menu
 function Show-GroupsUsersMenu {
 
 
@@ -158,6 +198,7 @@ function Show-GroupsUsersMenu {
     }
 }
 
+#Function to show Groups menu
 function Show-GroupsMenu {
 
 
@@ -193,6 +234,7 @@ function Show-GroupsMenu {
     }
 }
 
+#Function to show Users menu
 function Show-UsersMenu {
 
 
@@ -228,51 +270,70 @@ function Show-UsersMenu {
     }
 }
 
+# Function to get the file path of a CSV file
 function Get-FilePath {
+    # Display a message to the user to select a CSV file
     Write-Host "Please select a CSV file to import and create Groups on your Proxmox Server" -ForegroundColor Yellow
 
+    # Add the necessary assembly for Windows Forms
     Add-Type -AssemblyName System.Windows.Forms
 
+    # Create a new OpenFileDialog object with initial directory set to the desktop and filter for CSV files
     $FileBrowser = New-Object System.Windows.Forms.OpenFileDialog -Property @{
         InitialDirectory = [Environment]::GetFolderPath('Desktop')
         Filter = 'CSV Files (*.csv)|*.csv'
     }
 
+    # Show the file dialog and check if the user selected a file
     if ($FileBrowser.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        # If a file is selected, store the file path in the $path variable
         $path = $FileBrowser.FileName
     } else {
+        # If no file is selected, display a warning message and call the function again
         Write-Host "Warning: No file selected! Please select a CSV file." -ForegroundColor Magenta
         Get-FilePath
         return
     }
 
+    # Return the file path
     return $path
 }
 
 function New-GroupCSV {
+    # Initialize counters for success, error, and warning
     $GroupsSuccess = 0
     $GroupsError = 0
     $GroupsWarning = 0
 
+    # Get the file path from the user
     $path = Get-FilePath
 
+    # Check if the file path is null
     if ($null -eq $path) {
         Write-Host "Error: No file selected. Please try again." -ForegroundColor Red
+        # Recall the function to retry
         New-GroupCSV
         return
     }
 
+    # Import the CSV file from the specified path
     $CSVFile = Import-Csv -Path $path
 
     Write-Host " "
 
+    # Check if there are any group names in the CSV file
     if (($CSVFile.GroupName).Count -ge 1) {
+        # Iterate through each group name in the CSV file
         foreach ($groupName in $CSVFile.GroupName) {
+            # Check if the group name contains only allowed characters
             if ($groupName -notmatch "[^a-zA-Z0-9-_]") {
+                # Check if the group already exists
                 if ((Get-GroupExists $groupName) -EQ $false) {
                     try {
+                        # Attempt to create the new group
                         $command = New-PveAccessGroups -Groupid $groupName -ErrorAction Stop
 
+                        # Check if the group was created successfully
                         if ($command.IsSuccessStatusCode -eq $true) {
                             Write-Host "Success: The group $groupName has been successfully created" -ForegroundColor Green
                             $GroupsSuccess++
@@ -297,19 +358,17 @@ function New-GroupCSV {
         Write-Host " "
         Write-Host " "
 
-        # Display the information message
+        # Display the summary of the group creation task
         Write-Host "Info: The task of creating groups is completed. During the task, there was -> " -ForegroundColor Yellow -NoNewline
 
-        # Display the success message in green
         Write-Host "$GroupsSuccess Success" -ForegroundColor Green -NoNewline
 
-        # Display the warning message in magenta
         Write-Host " -> $GroupsWarning Warning" -ForegroundColor Magenta -NoNewline
 
-        # Display the error message in red
         Write-Host " -> $GroupsError Error" -ForegroundColor Red
 
         Write-Host " "
+        # Prompt the user to restart the group creation or return to the previous menu
         $choice = $(Write-Host "Type 1 to restart the creation of a groups or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
 
         if ($choice -eq 1) {
@@ -323,6 +382,7 @@ function New-GroupCSV {
         Write-Host " "
         Write-Host "Error: No value was found in the GroupName field" -ForegroundColor Red
         Write-Host " "
+        # Prompt the user to restart the group creation or return to the previous menu
         $choice = $(Write-Host "Type 1 to restart the creation of a groups or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
 
         if ($choice -eq 1) {
@@ -842,6 +902,72 @@ function Get-Ram { param ( [string]$NodeName )
     }
 }
 
+function Get-LXCTemplate {
+    $nbr = 1
+    $templates = New-Object System.Collections.Generic.List[PSCustomObject]
+
+    # Retrieve node data
+    $nodes = (Get-PveNodes).ToData() | Sort-Object -Property Node
+
+    Clear-Host
+    Write-Host "Here are the templates that exist:" -ForegroundColor Yellow
+    Write-Host "===================================" -ForegroundColor Cyan
+
+    foreach ($node in $nodes) {
+        # Retrieve storage content
+        $storage = (Get-PveNodesStorageContent -Node $node.node -Storage local).ToData() | Where-Object { $_.content -eq "vztmpl" } | Sort-Object -Property volid
+
+        if ($storage.Count -ge 1) {
+            Write-Host "Node -> $($node.node)" -ForegroundColor Yellow
+            
+            foreach ($item in $storage) {
+                $templateName = ($item.volid).Split("/")[-1]
+
+                Write-Host "$nbr -> $templateName"
+
+                $templates.Add([PSCustomObject]@{
+                    Index = $nbr
+                    Node = $node.node
+                    Volid = $item.volid
+                })
+
+                $nbr++
+            }
+
+            Write-Host " "
+        }
+    }
+
+    if ($templates.Count -ge 1) {
+        while ($true) {
+            Write-Host " "
+            $choix = $(Write-Host "Which system did you want to use for the deployment of your LXC? (Use the number to indicate the template). Press E to exit the function : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+            # Validate input
+            if ($choix -match '^\d+$') {
+                $choix = [int]$choix
+                if ($choix -ge 1 -and $choix -le $templates.Count) {
+                    $choix = $choix - 1
+                    return $templates[$choix]
+                } else {
+                    Write-Host " "
+                    Write-Host "Error : Please enter a number between 1 and $($templates.Count), or 'E' to exit." -ForegroundColor Red
+                }
+            } elseif ($choix -eq "E") {
+                Show-MenuDeployVirtualMachine
+                return
+            } else {
+                Write-Host " "
+                Write-Host "Error : Please enter a valid number or 'E' to exit." -ForegroundColor Red
+            }
+        }
+    } else {
+        Write-Host "Error : No template was found" -ForegroundColor Red
+        Show-MenuDeployVirtualMachine
+        return
+    }
+}
+
 function New-DeployLXCGroup {
     
     $CPU = 1
@@ -921,7 +1047,14 @@ function New-DeployLXCGroup {
                 $CPU = Get-CpuNbr $Template.Node
                 $Ram = Get-Ram $Template.Node
                 $Nic = Get-NicLXC $Template.Node
-                $HDDrive = Get-DiskLxc $Template.Node
+
+                #$HDDrive = Get-DiskLxc $Template.Node
+
+                $diskLxc = Get-Disk -NodeName $Template.Node -type "rootdir"
+                $sizeDiskLxc = Get-SizeDiskLXC
+                $HDDrive = "$($diskLxc.Storage):$($sizeDiskLxc)"
+
+                
 
                 Clear-Host
                 Write-Host "Custom Configuration for LXC :" -ForegroundColor Yellow
@@ -1018,69 +1151,24 @@ function Set-LXC { param ([string]$NodeName, [int]$Cpu, [int]$Ram, [string]$HDDr
     }
 }
 
-function Get-LXCTemplate {
-    $nbr = 1
-    $templates = New-Object System.Collections.Generic.List[PSCustomObject]
+function Get-DiskSpaceOK {param ([string]$NodeName, [string]$HDDrive, [int]$NbrDeploy)
 
-    # Retrieve node data
-    $nodes = (Get-PveNodes).ToData()
 
-    Clear-Host
-    Write-Host "Here are the templates that exist:" -ForegroundColor Yellow
-    Write-Host "===================================" -ForegroundColor Cyan
+    $Disk = $HDDrive.Split(":")
+    
+    $SpaceRequired = [int]$Disk[1] * $NbrDeploy
 
-    foreach ($node in $nodes) {
-        # Retrieve storage content
-        $storage = (Get-PveNodesStorageContent -Node $node.node -Storage local).ToData() | Where-Object { $_.content -eq "vztmpl" }
+    $DiskInfo = (Get-PveNodesStorage -Node $NodeName).ToData() | Where-Object { $_.storage -eq $Disk[0] }
 
-        if ($storage.Count -ge 1) {
-            Write-Host "Node -> $($node.node)" -ForegroundColor Yellow
-            
-            foreach ($item in $storage) {
-                $templateName = ($item.volid).Split("/")[-1]
+    $FreeSpace = [Math]::Floor($DiskInfo.avail / (1024 * 1024 * 1024))
 
-                Write-Host "$nbr -> $templateName"
-
-                $templates.Add([PSCustomObject]@{
-                    Index = $nbr
-                    Node = $node.node
-                    Volid = $item.volid
-                })
-
-                $nbr++
-            }
-
-            Write-Host " "
-        }
+    if ($SpaceRequired -lt $FreeSpace) {
+        return $true
     }
-
-    if ($templates.Count -ge 1) {
-        while ($true) {
-            Write-Host " "
-            $choix = $(Write-Host "Which system did you want to use for the deployment of your LXC? (Use the number to indicate the template). Press E to exit the function : " -ForegroundColor Yellow -NoNewline; Read-Host)
-
-            # Validate input
-            if ($choix -match '^\d+$') {
-                $choix = [int]$choix
-                if ($choix -ge 1 -and $choix -le $templates.Count) {
-                    $choix = $choix - 1
-                    return $templates[$choix]
-                } else {
-                    Write-Host " "
-                    Write-Host "Error : Please enter a number between 1 and $($templates.Count), or 'E' to exit." -ForegroundColor Red
-                }
-            } elseif ($choix -eq "E") {
-                Show-MenuDeployVirtualMachine
-                return
-            } else {
-                Write-Host " "
-                Write-Host "Error : Please enter a valid number or 'E' to exit." -ForegroundColor Red
-            }
-        }
-    } else {
-        Write-Host "Error : No template was found" -ForegroundColor Red
-        Show-MenuDeployVirtualMachine
-        return
+    else {
+        Write-Host " "
+        Write-Host "Error: There is not enough space to create all the machines. Free space -> $FreeSpace GB, Required space -> $SpaceRequired GB" -ForegroundColor Red
+        return $false
     }
 }
 
@@ -1180,8 +1268,13 @@ function Get-Vlan {
 }
 
 function Get-LastVMID {
-    
+
     $maxVmid = (Get-PveVm).vmid | Measure-Object -Maximum | Select-Object -ExpandProperty Maximum
+
+    if ($null -eq $maxVmid) {
+        $maxVmid = 99
+    }
+    
     return $maxVmid
 }
 
@@ -1276,44 +1369,18 @@ function Get-DiskSpaceOK {param ([string]$NodeName, [string]$HDDrive, [int]$NbrD
     
     $SpaceRequired = [int]$Disk[1] * $NbrDeploy
 
-    $TypeDisk = (Get-PveNodesStorage -Node $NodeName).ToData() | Where-Object storage -eq $Disk[0]
+    $DiskInfo = (Get-PveNodesStorage -Node $NodeName).ToData() | Where-Object { $_.storage -eq $Disk[0] }
 
-    if($TypeDisk.type -eq "lvmthin")
-    {
-        $DiskInfo = (Get-PveNodesStorage -Node $NodeName).ToData() | Where-Object { $_.storage -eq $Disk[0] }
+    $FreeSpace = [Math]::Floor($DiskInfo.avail / (1024 * 1024 * 1024))
 
-        $FreeSpace = [Math]::Floor($DiskInfo.avail / (1024 * 1024 * 1024))
-
-        if ($SpaceRequired -lt $FreeSpace) {
-            return $true
-        }
-        else {
-            Write-Host " "
-            Write-Host "Error: There is not enough space to create all the machines. Free space -> $FreeSpace GB, Required space -> $SpaceRequired GB" -ForegroundColor Red
-            return $false
-        }
-    }
-    elseif ($TypeDisk.type -eq "zfspool") {
-
-        $DiskInfo = (Get-PveNodesStorage -Node $NodeName).ToData() | Where-Object { $_.storage -eq $Disk[0] }
-
-        $FreeSpace = [Math]::Floor($DiskInfo.avail / (1024 * 1024 * 1024))
-
-        if ($SpaceRequired -lt $FreeSpace) {
-            return $true
-        }
-        else {
-            Write-Host " "
-            Write-Host "Error: There is not enough space to create all the machines. Free space -> $FreeSpace GB, Required space -> $SpaceRequired GB" -ForegroundColor Red
-            return $false
-        }
-        
+    if ($SpaceRequired -lt $FreeSpace) {
+        return $true
     }
     else {
         Write-Host " "
-        Write-Host "Error : The disk $($Disk[0]) is in the format $($TypeDisk.type). This format is not yet supported " -ForegroundColor Red
+        Write-Host "Error: There is not enough space to create all the machines. Free space -> $FreeSpace GB, Required space -> $SpaceRequired GB" -ForegroundColor Red
+        return $false
     }
-    
 }
 
 function Get-TemplateClone {
@@ -1371,7 +1438,6 @@ function Get-PasswordLXC {
         $choice = $(Write-Host "Please enter the password to set for the LXC (minimum of 5 characters long) : " -ForegroundColor Yellow -NoNewline; Read-Host)
 
         if ($choice.Length -ge 5) {
-            <# Action to perform if the condition is true #>
 
             $Password = ConvertTo-SecureString $choice -AsPlainText -Force
             return $Password
@@ -1443,7 +1509,8 @@ function New-CloneTemplate {
     $Template = Get-TemplateClone
     $Vmid = (Get-LastVMID) + 1
     $networkInterfaces = @()
-    $FullClone = Get-FullClone
+    #$FullClone = Get-FullClone
+    $FullClone = $true
 
     if($Template.type -eq "lxc")
     {
@@ -1497,7 +1564,7 @@ function New-CloneTemplate {
         }
 
         Write-Host "OS -> $($LxcConfig.ostype)"
-        Write-Host "Name LXC -> $($LxcConfig.ostype)-VMID"
+        Write-Host "Name LXC -> $($LxcConfig.hostname)-VMID"
         
 
         while ($true) {
@@ -1506,6 +1573,7 @@ function New-CloneTemplate {
 
             if ($choice -eq 1)
             {
+                $FullClone = Get-FullClone
                 Clear-Host
                 $HDDrive = "$($LxcConfig.rootfs.Split(":")[0]):$($LxcConfig.rootfs.Split(":").Split(",").Split("=")[-1].Replace("G", " "))"
 
@@ -1513,9 +1581,9 @@ function New-CloneTemplate {
                 {
                     foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
                     {
-                        $name = $LxcConfig.ostype + "-" + $Vmid
+                        $name = $LxcConfig.hostname + "-" + $Vmid
 
-                        $command = New-CloneLXCTemplate -LxcConfig $LxcConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -FullClone $FullClone
+                        $command = New-CloneLXCTemplate -LxcConfig $LxcConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -FullClone $FullClone -Node $Template.node
 
                         if ($true -eq $command) {
                             $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
@@ -1531,7 +1599,9 @@ function New-CloneTemplate {
             }
             elseif ($choice -eq 2) {
                 
-                $Disk = Get-DiskLxc -NodeName $Template.node -NoSetSize $true
+                $diskLxc = Get-Disk -NodeName $Template.Node -type "rootdir" -shared $true
+                $Disk = $diskLxc.Storage
+                $Node = $diskLxc.node
 
                 while ($true) {
                     Write-Host " "
@@ -1543,15 +1613,15 @@ function New-CloneTemplate {
 
                             $HDDrive = "$($Disk):$($LxcConfig.rootfs.Split(":").Split(",").Split("=")[-1].Replace("G", " "))"
 
-                            if (Get-DiskSpaceOK -NodeName $Template.Node -HDDrive $HDDrive -NbrDeploy $NbrDeploy) {
+                            if (Get-DiskSpaceOK -NodeName $Node -HDDrive $HDDrive -NbrDeploy $NbrDeploy) {
 
                                 Clear-Host
 
                                 foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
                                 {
-                                    $name = $LxcConfig.ostype + "-" + $Vmid
+                                    $name = $LxcConfig.hostname + "-" + $Vmid
 
-                                    $command = New-CloneLXCTemplate -LxcConfig $LxcConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -Storage $Disk -FullClone $FullClone
+                                    $command = New-CloneLXCTemplate -LxcConfig $LxcConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -Storage $Disk -FullClone $FullClone -Node $Node
 
                                     if ($true -eq $command) {
                                         $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
@@ -1673,6 +1743,8 @@ function New-CloneTemplate {
 
             if ($choice -eq 1)
             {
+                $FullClone = Get-FullClone
+
                 Clear-Host
 
                 $SystemDisk = $QemuConfig.PSObject.Properties | Where-Object {
@@ -1706,7 +1778,9 @@ function New-CloneTemplate {
             }
             elseif ($choice -eq 2) {
 
-                $Disk = Get-DiskVM -NodeName $Template.node -NoSetSize $true
+                $DiskQemu = Get-Disk -NodeName $Template.node -type "images" -shared $true
+                $Disk = $diskQemu.Storage
+                $node = $DiskQemu.node
 
                 while ($true) {
                     Write-Host " "
@@ -1725,7 +1799,7 @@ function New-CloneTemplate {
 
                             $HDDrive = "$($Disk):$($SystemDisk.value.Split("=")[-1].Replace("G", " "))"
 
-                            if (Get-DiskSpaceOK -NodeName $Template.Node -HDDrive $HDDrive -NbrDeploy $NbrDeploy)
+                            if (Get-DiskSpaceOK -NodeName $node -HDDrive $HDDrive -NbrDeploy $NbrDeploy)
                             {
                                 Clear-Host
 
@@ -1733,7 +1807,7 @@ function New-CloneTemplate {
                                 {
                                     $name = $QemuConfig.ostype + "-" + $Vmid
 
-                                    $command = New-CloneVMTemplate -QemuConfig $QemuConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -Storage $Disk -FullClone $FullClone
+                                    $command = New-CloneVMTemplate -QemuConfig $QemuConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -Storage $Disk -FullClone $FullClone -Node $node
 
                                     if ($true -eq $command) {
                                         $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
@@ -1784,28 +1858,29 @@ function New-CloneTemplate {
     
 }
 
-function New-CloneVMTemplate {param ($QemuConfig, $Template, [string]$name, [int]$Vmid, [string]$groupName, [string]$Storage, $FullClone)
+function New-CloneVMTemplate {param ($QemuConfig, $Template, [string]$name, [int]$Vmid, [string]$groupName, [string]$Storage, $FullClone, [string]$Node)
     
     if($null -eq $Storage)
     {
         if($true -eq $FullClone)
         {
-            $command = New-PveNodesQemuClone -Node $Template.node -Full -name $name -Newid $Vmid -Vmid $Template.vmid -Pool $groupName
+            $command = New-PveNodesQemuClone -Target $node -Node $Template.node -Vmid $Template.vmid -Full -name $name -Newid $Vmid -Pool $groupName
         }
         else
         {
-            $command = New-PveNodesQemuClone -Node $Template.node -name $name -Newid $Vmid -Vmid $Template.vmid -Pool $groupName
+            $command = New-PveNodesQemuClone -Target $node -Node $Template.node -Vmid $Template.vmid -name $name -Newid $Vmid -Pool $groupName
         }
     }
     else {
 
         if($true -eq $FullClone)
         {
-            $command = New-PveNodesQemuClone -Node $Template.node -Full -name $name -Newid $Vmid -Vmid $Template.vmid -Pool $groupName -Storage $Storage
+            $command = New-PveNodesQemuClone -Target $node -Node $Template.node -Vmid $Template.vmid -Full -name $name -Newid $Vmid -Pool $groupName -Storage $Storage
         }
         else
         {
-            $command = New-PveNodesQemuClone -Node $Template.node -name $name -Newid $Vmid -Vmid $Template.vmid -Pool $groupName -Storage $Storage
+            $command = New-PveNodesQemuClone -Target $node -Node $Template.node -Vmid $Template.vmid -name $name -Newid $Vmid -Pool $groupName #-Storage $Storage
+            
         }
     }
 
@@ -1819,7 +1894,7 @@ function New-CloneVMTemplate {param ($QemuConfig, $Template, [string]$name, [int
     }
 }
 
-function New-CloneLXCTemplate {param ($LxcConfig, $Template, [string]$name, [int]$Vmid, [string]$groupName, [string]$Storage, $FullClone )
+function New-CloneLXCTemplate {param ($LxcConfig, $Template, [string]$name, [int]$Vmid, [string]$groupName, [string]$Storage, $FullClone, [string]$Node )
 
     if($null -eq $Storage)
     {
@@ -1828,10 +1903,10 @@ function New-CloneLXCTemplate {param ($LxcConfig, $Template, [string]$name, [int
 
 
     if ($true -eq $FullClone) {
-        $command = New-PveNodesLxcClone -Node $Template.node -Full -Hostname $name -Newid $Vmid -Storage $Storage -Vmid $Template.vmid -Pool $groupName
+        $command = New-PveNodesLxcClone -Target $node -Node $Template.node -Full -Hostname $name -Newid $Vmid -Storage $Storage -Vmid $Template.vmid -Pool $groupName
     }
     else {
-        $command = New-PveNodesLxcClone -Node $Template.node -Hostname $name -Newid $Vmid -Storage $Storage -Vmid $Template.vmid -Pool $groupName
+        $command = New-PveNodesLxcClone -Target $node -Node $Template.node -Hostname $name -Newid $Vmid -Vmid $Template.vmid -Pool $groupName #-Storage $Storage
     }
 
     while ($true) {
@@ -1839,10 +1914,10 @@ function New-CloneLXCTemplate {param ($LxcConfig, $Template, [string]$name, [int
         {
             Start-Sleep -Seconds 2
             if ($true -eq $FullClone) {
-                $command = New-PveNodesLxcClone -Node $Template.node -Full -Hostname $name -Newid $Vmid -Storage $Storage -Vmid $Template.vmid -Pool $groupName
+                $command = New-PveNodesLxcClone -Target $node -Node $Template.node -Full -Hostname $name -Newid $Vmid -Storage $Storage -Vmid $Template.vmid -Pool $groupName
             }
             else {
-                $command = New-PveNodesLxcClone -Node $Template.node -Hostname $name -Newid $Vmid -Storage $Storage -Vmid $Template.vmid -Pool $groupName
+                $command = New-PveNodesLxcClone -Target $node -Node $Template.node -Hostname $name -Newid $Vmid -Storage $Storage -Vmid $Template.vmid -Pool $groupName
             }
         }
         else{
@@ -1860,22 +1935,98 @@ function New-CloneLXCTemplate {param ($LxcConfig, $Template, [string]$name, [int
     }
 }
 
-function Get-DiskVM { param ( [string]$NodeName, [bool]$NoSetSize )
-
+function Get-Disk  {param ($NodeName,$type,$shared)
     $nbr = 1
-    $Disk = $null
-    $DiskSize = $null
-    
-    $Storages = (Get-PveNodesStorage -node $NodeName).ToData() | Where-Object {$_.content -eq "rootdir,images" -or $_.content -eq "images,rootdir"} | Sort-Object -Property storage
+    $diskList = @()
 
     Clear-Host
-    Write-Host "Storage Pool available on your Proxmox server :" -ForegroundColor Yellow
+    Write-Host "Storage Pool available on your Proxmox server(s) :" -ForegroundColor Yellow
     Write-Host "================================================" -ForegroundColor Cyan
 
-    foreach ($Storage in $Storages)
-    {
-        Write-Host "$nbr -> $($Storage.storage)"
-        $nbr++
+    if ($null -eq $NodeName) {
+        $ListNodes = (Get-PveNodes).ToData() | Sort-Object -Property node
+        
+
+        foreach($node in $ListNodes.node)
+        {
+            Write-Host "Node -> $node" -ForegroundColor Yellow
+            Write-Host "----------------------" -ForegroundColor Cyan
+
+            $listStorage = (Get-PveNodesStorage -Node $node).ToData() | Where-Object { $_.content -match "$type" } | Sort-Object -Property storage
+
+            foreach($storage in $listStorage)
+            {
+                Write-Host "$nbr -> $($storage.storage)"
+                $diskList += [PSCustomObject]@{
+                    Node = $node
+                    Storage = $storage.storage
+                }
+                $nbr++
+            }
+
+            Write-Host " "
+        }
+    }
+    else {
+
+        if($true -eq $shared)
+        {
+            Write-Host "Node -> $NodeName (Local)" -ForegroundColor Yellow
+            Write-Host "----------------------------" -ForegroundColor Cyan
+
+            $listStorage = (Get-PveNodesStorage -Node $NodeName).ToData() | Where-Object { $_.content -match "$type" } | Sort-Object -Property storage
+
+            foreach($storage in $listStorage)
+            {
+                Write-Host "$nbr -> $($storage.storage)"
+                $diskList += [PSCustomObject]@{
+                    Node = $NodeName
+                    Storage = $storage.storage
+                }
+                $nbr++
+            }
+
+            Write-Host " "
+
+            $ListNodes = (Get-PveNodes).ToData() | Where-Object { $_.node -notmatch "$NodeName"} | Sort-Object -Property node
+
+            foreach($node in $ListNodes.node)
+            {
+                Write-Host "Node -> $node (Distant)" -ForegroundColor Yellow
+                Write-Host "----------------------------" -ForegroundColor Cyan
+
+                $listStorage = (Get-PveNodesStorage -Node $node).ToData() | Where-Object { $_.content -match "$type" -and $_.shared -eq 1 } | Sort-Object -Property storage
+
+                foreach($storage in $listStorage)
+                {
+                    Write-Host "$nbr -> $($storage.storage)"
+                    $diskList += [PSCustomObject]@{
+                        Node = $node
+                        Storage = $storage.storage
+                    }
+                    $nbr++
+                }
+
+                Write-Host " "
+            }
+
+        }
+        else {
+            Write-Host "Node -> $NodeName" -ForegroundColor Yellow
+            Write-Host "----------------------" -ForegroundColor Cyan
+
+            $listStorage = (Get-PveNodesStorage -Node $NodeName).ToData() | Where-Object { $_.content -match "$type" } | Sort-Object -Property storage
+
+            foreach($storage in $listStorage)
+            {
+                Write-Host "$nbr -> $($storage.storage)"
+                $diskList += [PSCustomObject]@{
+                    Node = $NodeName
+                    Storage = $storage.storage
+                }
+                $nbr++
+            }
+        }
     }
 
     while ($true) {
@@ -1886,22 +2037,12 @@ function Get-DiskVM { param ( [string]$NodeName, [bool]$NoSetSize )
         if ($choix -match '^\d+$') {
             $choix = [int]$choix
 
-            if ($choix -ge 1 -and $choix -le ($Storages.Count)) {
+            if ($choix -ge 1 -and $choix -le ($diskList.count)) {
                 $choix = $choix -1
 
-                $Disk = $Storages[$choix]
+                $Disk = $diskList[$choix]
 
-                if($true -eq $NoSetSize)
-                {
-                    $Drive = $Disk.storage
-                }else
-                {
-                    $DiskSize = Get-SizeDiskQemu
-
-                    $Drive = "$($Disk.storage):$DiskSize"
-                }
-
-                return $Drive
+                return $Disk
                 break
             }
             else {
@@ -2019,9 +2160,16 @@ function New-DeployQemuGroup {
 
             } elseif ($choice -eq 2) {
 
-                $node = Get-NodeQemu
+                #$node = Get-NodeQemu
+                #$HDDrive = @{ 1 = (Get-DiskVM -NodeName $node) }
+
+                $diskQemu = Get-Disk -type "images"
+                $node = $diskQemu.node
+                $sizeDiskQemu = Get-SizeDiskQemu
+                $disk = "$($diskQemu.Storage):$($sizeDiskQemu)"
+                $HDDrive = @{ 1 = ($disk) }
+
                 $CPU = Get-CpuNbr -NodeName $node
-                $HDDrive = @{ 1 = (Get-DiskVM -NodeName $node) }
                 $Ram = Get-Ram -NodeName $node
                 $Nic = Get-NicQemu -NodeName $node
                 $DynamicDeploy = Get-DynamicDeploy
@@ -2348,8 +2496,6 @@ function Get-DynamicDeploy {
 }
 
 function Get-SizeDiskQemu {
-    
-    
 
     while ($true) {
         Write-Host " "
@@ -2377,11 +2523,12 @@ function Get-SizeDiskQemu {
 
 if (($PSVersionTable.PSVersion.Major) -ge 6) {
 
-    Get-welcome #ok
-    Find-Module #ok
-    $PveTicket = Get-PVECredential #ok
-
-    Show-Menu
+    if(Find-Module)
+    {
+        Get-welcome #ok
+        $PveTicket = Get-PVECredential #ok
+        Show-Menu
+    }
 
 } else {
     Write-Host "Please update your version of PowerShell. Minimum version requirement for PowerShell is 6.0. You currently have the version $($PSVersionTable.PSVersion)"

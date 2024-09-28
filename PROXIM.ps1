@@ -1508,6 +1508,9 @@ function New-CloneTemplate {
     $Vmid = (Get-LastVMID) + 1
     $networkInterfaces = @()
     $FullClone = $true
+    $nodeIndex = 0
+    $ListNodesOk = @()
+    $NodesList =@()
 
     if($Template.type -eq "lxc")
     {
@@ -1607,6 +1610,10 @@ function New-CloneTemplate {
                     if ($choix -eq "Y" -or $choix -eq "N") {
             
                         if ($choix -eq "Y") {
+
+                            if ($Disk -eq $LxcConfig.rootfs.Split(":")[0]) {
+                                $FullClone = Get-FullClone
+                            }
 
                             $HDDrive = "$($Disk):$($LxcConfig.rootfs.Split(":").Split(",").Split("=")[-1].Replace("G", " "))"
 
@@ -1730,7 +1737,7 @@ function New-CloneTemplate {
         }
 
         Write-Host "OS -> $($QemuConfig.ostype)"
-        Write-Host "Name VM -> $($QemuConfig.ostype)-VMID"
+        Write-Host "Name VM -> $($QemuConfig.name)-VMID"
 
 
         while ($true) {
@@ -1751,23 +1758,51 @@ function New-CloneTemplate {
 
                 $HDDrive = "$($SystemDisk.value.Split(":")[0]):$($SystemDisk.value.Split("=")[-1].Replace("G", " "))"
 
-                if (Get-DiskSpaceOK -NodeName $Template.Node -HDDrive $HDDrive -NbrDeploy $NbrDeploy)
+                #----------------------------------------------------------------------------------------------------------------
+                #----------------------------------------------------------------------------------------------------------------
+
+                $ListNodes = ((Get-PveNodes).ToData() | Sort-Object -Property node).node
+
+                foreach($node in $ListNodes)
                 {
+                    if((Get-PveNodesStorage -Node $node).ToData() | Where-Object storage -eq $($HDDrive.split(":")[0]))
+                    {
+                        $NodesList += $node
+                    }
+                }
+
+                foreach ($node in $NodesList) {
+                    if (Get-DiskSpaceOK -NodeName $node -HDDrive $HDDrive -NbrDeploy $NbrDeploy) {
+                        $ListNodesOk += $node
+                    }
+                }
+
+                if ($ListNodesOk.count -ge 1) {
                     Clear-Host
 
                     foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
                     {
-                        $name = $QemuConfig.ostype + "-" + $Vmid
+                        $name = $QemuConfig.name + "-" + $Vmid
 
-                        $command = New-CloneVMTemplate -QemuConfig $QemuConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -FullClone $FullClone
+                        if ($ListNodesOk.Count -eq 1) {
+                            $node = $ListNodesOk[0]
+                        } 
+                        else {
+                            $node = $ListNodesOk[$nodeIndex]
+                        }
+
+                        $command = New-CloneVMTemplate -QemuConfig $QemuConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -FullClone $FullClone -Node $node
 
                         if ($true -eq $command) {
                             $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
-                        }   
+                        }
+
                         $Vmid++
+                        $nodeIndex = ($nodeIndex + 1) % $ListNodesOk.Count
                     }
                 }
-                else {
+                else
+                {
                     Write-Host "Error : Unable to create $NbrDeploy machines for the group $groupName" -ForegroundColor Red
                 }
                     
@@ -1778,6 +1813,8 @@ function New-CloneTemplate {
                 $DiskQemu = Get-Disk -NodeName $Template.node -type "images" -shared $true
                 $Disk = $diskQemu.Storage
                 $node = $DiskQemu.node
+
+                $DynamicDeploy = Get-DynamicDeploy
 
                 while ($true) {
                     Write-Host " "
@@ -1794,28 +1831,65 @@ function New-CloneTemplate {
                                 $_.Name -notmatch "efidisk\d+" -and $_.Name -notmatch "tpmstate\d+"
                             }
 
+                            if ($Disk -eq $SystemDisk.value.Split(":")[0]) {
+                                $FullClone = Get-FullClone
+                            }
+
                             $HDDrive = "$($Disk):$($SystemDisk.value.Split("=")[-1].Replace("G", " "))"
 
-                            if (Get-DiskSpaceOK -NodeName $node -HDDrive $HDDrive -NbrDeploy $NbrDeploy)
+                            #----------------------------------------------------------------------------------------------------------------
+                            #----------------------------------------------------------------------------------------------------------------
+
+                            if($true -eq $DynamicDeploy)
                             {
-                                Clear-Host
+                                $ListNodes = ((Get-PveNodes).ToData() | Sort-Object -Property node).node
 
-                                foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
+                                foreach($node in $ListNodes)
                                 {
-                                    $name = $QemuConfig.ostype + "-" + $Vmid
-
-                                    $command = New-CloneVMTemplate -QemuConfig $QemuConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -Storage $Disk -FullClone $FullClone -Node $node
-
-                                    if ($true -eq $command) {
-                                        $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
-                                    }   
-                                    $Vmid++
+                                    if((Get-PveNodesStorage -Node $node).ToData() | Where-Object storage -eq $($HDDrive.split(":")[0]))
+                                    {
+                                        $NodesList += $node
+                                    }
                                 }
                             }
-                            else {
+                            else{
+                                $NodesList += $node
+                            }
+
+                            foreach ($node in $NodesList) {
+                                if (Get-DiskSpaceOK -NodeName $node -HDDrive $HDDrive -NbrDeploy $NbrDeploy) {
+                                    $ListNodesOk += $node
+                                }
+                            }
+
+                            if ($ListNodesOk.count -ge 1) {
+                                Clear-Host
+            
+                                foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
+                                {
+                                    $name = $QemuConfig.name + "-" + $Vmid
+            
+                                    if ($ListNodesOk.Count -eq 1) {
+                                        $node = $ListNodesOk[0]
+                                    } 
+                                    else {
+                                        $node = $ListNodesOk[$nodeIndex]
+                                    }
+            
+                                    $command = New-CloneVMTemplate -QemuConfig $QemuConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -Storage $Disk -FullClone $FullClone -Node $node
+            
+                                    if ($true -eq $command) {
+                                        $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
+                                    }
+            
+                                    $Vmid++
+                                    $nodeIndex = ($nodeIndex + 1) % $ListNodesOk.Count
+                                }
+                            }
+                            else
+                            {
                                 Write-Host "Error : Unable to create $NbrDeploy machines for the group $groupName" -ForegroundColor Red
-                                break
-                            }   
+                            }  
 
                             break
                         }
@@ -1914,7 +1988,7 @@ function New-CloneLXCTemplate {param ($LxcConfig, $Template, [string]$name, [int
                 $command = New-PveNodesLxcClone -Target $node -Node $Template.node -Full -Hostname $name -Newid $Vmid -Storage $Storage -Vmid $Template.vmid -Pool $groupName
             }
             else {
-                $command = New-PveNodesLxcClone -Target $node -Node $Template.node -Hostname $name -Newid $Vmid -Storage $Storage -Vmid $Template.vmid -Pool $groupName
+                $command = New-PveNodesLxcClone -Target $node -Node $Template.node -Hostname $name -Newid $Vmid -Vmid $Template.vmid -Pool $groupName #-Storage $Storage
             }
         }
         else{
@@ -2128,7 +2202,6 @@ function New-DeployQemuGroup {
                     }
                 }
 
-
                 if ($ListNodesOk.Count -ge 1) {
                     Clear-Host
 
@@ -2139,7 +2212,6 @@ function New-DeployQemuGroup {
                             $node = $ListNodesOk[0]
                         } 
                         else {
-                            #$node = $ListNodesOk[((Get-Random -Minimum 1 -Maximum $ListNodesOk.Count) - 1)]
                             $node = $ListNodesOk[$nodeIndex]
                         }
 
@@ -2474,9 +2546,11 @@ function Get-DynamicDeploy {
         while ($true) {
             $choice = $(Write-Host "Did you want to perform a Dynamic deployment to distribute the workload across all the nodes in your system? (Y/N) : " -ForegroundColor Yellow -NoNewline; Read-Host)
 
+            $choice = $choice.ToUpper()
+
             if ($choice -eq "Y" -or $choice -eq "N") {
 
-                if ($choix -eq "Y") {
+                if ($choice -eq "Y") {
                     return $true
                 }
                 else {

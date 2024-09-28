@@ -913,29 +913,35 @@ function Get-LXCTemplate {
     Write-Host "Here are the templates that exist:" -ForegroundColor Yellow
     Write-Host "===================================" -ForegroundColor Cyan
 
-    foreach ($node in $nodes) {
-        # Retrieve storage content
-        $storage = (Get-PveNodesStorageContent -Node $node.node -Storage local).ToData() | Where-Object { $_.content -eq "vztmpl" } | Sort-Object -Property volid
+    foreach ($node in $nodes.node)
+    {
+        Write-Host "Node -> $($node)" -ForegroundColor Yellow
 
-        if ($storage.Count -ge 1) {
-            Write-Host "Node -> $($node.node)" -ForegroundColor Yellow
-            
-            foreach ($item in $storage) {
-                $templateName = ($item.volid).Split("/")[-1]
+        $storages = (Get-PveNodesStorage -Node $node).ToData() | Where-Object { $_.content -match "vztmpl" } | Sort-Object -Property storage
 
-                Write-Host "$nbr -> $templateName"
+        foreach($storage in $storages)
+        {
+            $TemplateNode = (Get-PveNodesStorageContent -Node $node -Storage $storage.storage).ToData() | Where-Object { $_.content -eq "vztmpl" } | Sort-Object -Property volid
 
-                $templates.Add([PSCustomObject]@{
-                    Index = $nbr
-                    Node = $node.node
-                    Volid = $item.volid
-                })
+            if ($TemplateNode.Count -ge 1) {
+                
+                foreach ($item in $TemplateNode) {
+                    $templateName = ($item.volid).Split("/")[-1]
 
-                $nbr++
+                    Write-Host "$nbr -> $templateName"
+
+                    $templates.Add([PSCustomObject]@{
+                        Index = $nbr
+                        Node = $node
+                        Volid = $item.volid
+                    })
+
+                    $nbr++
+                }
             }
-
-            Write-Host " "
         }
+
+        Write-Host " "
     }
 
     if ($templates.Count -ge 1) {
@@ -978,6 +984,9 @@ function New-DeployLXCGroup {
     $HDDrive = $null
     $Password = "ApplePie"
     $LXCName = $null
+    $ListNodesOk = @()
+    $NodesList =@()
+    $nodeIndex = 0
 
     $groupName = Get-GroupDeploy
 
@@ -986,7 +995,7 @@ function New-DeployLXCGroup {
         return
     }
 
-    $NbrDeployLXC = (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().Members.Count
+    $NbrDeploy = (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().Members.Count
     $Vmid = (Get-LastVMID) + 1
     
     if ((Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members.count -ge 1)
@@ -1020,25 +1029,54 @@ function New-DeployLXCGroup {
                 $Nic = @{1='name=eth0,firewall=1,bridge=vmbr0,ip=dhcp'}
                 $HDDrive = $HdPath + ":" + $HdSize
                 $Password = ConvertTo-SecureString $Password -AsPlainText -Force
+                
+                #----------------------------------------------------------------------------------------------------------------
+                #----------------------------------------------------------------------------------------------------------------
 
-                Clear-Host
+                $ListNodes = ((Get-PveNodes).ToData() | Sort-Object -Property node).node
 
-                if (Get-DiskSpaceOK -NodeName $Template.Node -HDDrive $HDDrive -NbrDeploy $NbrDeployLXC)
+                foreach($node in $ListNodes)
                 {
+                    if((Get-PveNodesStorage -Node $node).ToData() | Where-Object storage -eq $($HDDrive.split(":")[0]))
+                    {
+                        if ((Get-PveNodesStorageContent -Node $node -Storage ($Template.volid.Split(":")[0])).ToData() | Where-Object { $_.volid -eq $Template.volid }) {
+                            $NodesList += $node
+                        }
+                    }
+                }
+
+                foreach ($node in $NodesList) {
+                    if (Get-DiskSpaceOK -NodeName $node -HDDrive $HDDrive -NbrDeploy $NbrDeploy) {
+                        $ListNodesOk += $node
+                    }
+                }
+
+                if ($ListNodesOk.count -ge 1) {
+                    Clear-Host
+
                     foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
                     {
+                        if ($ListNodesOk.Count -eq 1) {
+                            $node = $ListNodesOk[0]
+                        } 
+                        else {
+                            $node = $ListNodesOk[$nodeIndex]
+                        }
+
                         $name = $LXCName + "-" + $Vmid
-                        $command = Set-LXC -NodeName $Template.Node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Ostemplate $Template.volid -Vmid $Vmid -LXCName $name -Password $Password -Nic $Nic -group $groupName
+                        $command = Set-LXC -NodeName $Node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Ostemplate $Template.volid -Vmid $Vmid -LXCName $name -Password $Password -Nic $Nic -group $groupName
 
                         if ($true -eq $command) {
                             $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
                         }
 
                         $Vmid++
+                        $nodeIndex = ($nodeIndex + 1) % $ListNodesOk.Count
                     }
                 }
-                else {
-                    Write-Host "Error : Unable to create $NbrDeployLXC machines for the group $groupName" -ForegroundColor Red
+                else
+                {
+                    Write-Host "Error : Unable to create $NbrDeploy machines for the group $groupName" -ForegroundColor Red
                 }
 
                 break
@@ -1051,8 +1089,8 @@ function New-DeployLXCGroup {
                 $diskLxc = Get-Disk -NodeName $Template.Node -type "rootdir"
                 $sizeDiskLxc = Get-SizeDiskLXC
                 $HDDrive = "$($diskLxc.Storage):$($sizeDiskLxc)"
+                $DynamicDeploy = Get-DynamicDeploy
 
-                
 
                 Clear-Host
                 Write-Host "Custom Configuration for LXC :" -ForegroundColor Yellow
@@ -1077,27 +1115,64 @@ function New-DeployLXCGroup {
                     if ($choix -eq "Y" -or $choix -eq "N") {
             
                         if ($choix -eq "Y") {
-                            if (Get-DiskSpaceOK -NodeName $Template.Node -HDDrive $HDDrive -NbrDeploy $NbrDeployLXC) {
+
+                            #----------------------------------------------------------------------------------------------------------------
+                            #----------------------------------------------------------------------------------------------------------------
+                            if($true -eq $DynamicDeploy)
+                            {
+                                $ListNodes = ((Get-PveNodes).ToData() | Sort-Object -Property node).node
+
+                                foreach($node in $ListNodes)
+                                {
+                                    if((Get-PveNodesStorage -Node $node).ToData() | Where-Object storage -eq $($HDDrive.split(":")[0]))
+                                    {
+                                        if ((Get-PveNodesStorageContent -Node $node -Storage ($Template.volid.Split(":")[0])).ToData() | Where-Object { $_.volid -eq $Template.volid }) {
+                                            $NodesList += $node
+                                        }
+                                    }
+                                }
+                            }
+                            else{
+                                $NodesList += $Template.Node
+                            }
+
+                            foreach ($node in $NodesList) {
+                                if (Get-DiskSpaceOK -NodeName $node -HDDrive $HDDrive -NbrDeploy $NbrDeploy) {
+                                    $ListNodesOk += $node
+                                }
+                            }
+
+                            if ($ListNodesOk.count -ge 1) {
+                                Clear-Host
+
                                 $Password = Get-PasswordLXC
 
                                 Clear-Host
-
+            
                                 foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
-                                {
+                                {          
+                                    if ($ListNodesOk.Count -eq 1) {
+                                        $node = $ListNodesOk[0]
+                                    } 
+                                    else {
+                                        $node = $ListNodesOk[$nodeIndex]
+                                    }
+            
                                     $name = $LXCName + "-" + $Vmid
-                                    $command = Set-LXC -NodeName $Template.Node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Ostemplate $Template.volid -Vmid $Vmid -LXCName $name -Password $Password -Nic $Nic -group $groupName
-
+                                    $command = Set-LXC -NodeName $node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Ostemplate $Template.volid -Vmid $Vmid -LXCName $name -Password $Password -Nic $Nic -group $groupName
+            
                                     if ($true -eq $command) {
                                         $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
                                     }
-
+            
                                     $Vmid++
+                                    $nodeIndex = ($nodeIndex + 1) % $ListNodesOk.Count
                                 }
                             }
-                            else {
-                                Write-Host "Error : Unable to create $NbrDeployLXC machines for the group $groupName" -ForegroundColor Red
-                                break
-                            }   
+                            else
+                            {
+                                Write-Host "Error : Unable to create $NbrDeploy machines for the group $groupName" -ForegroundColor Red
+                            }  
 
                             break
                         }
@@ -1449,51 +1524,6 @@ function Get-PasswordLXC {
     
 }
 
-function Get-TemplateClone {
-    $nbr = 1
-    $ListTemplate = (Get-PveVm) | Where-Object template -eq 1 | Sort-Object name
-
-    if ($ListTemplate.count -ge 1)
-    {
-        Clear-Host
-        Write-Host "Template that exists on your Proxmox :" -ForegroundColor Yellow
-        Write-Host "=======================================" -ForegroundColor Cyan
-
-        foreach($Template in $ListTemplate)
-        {
-            Write-Host "$nbr -> $($Template.name) Type -> $($Template.type)"
-            $nbr++
-        }
-
-        while ($true) {
-            Write-Host " "
-            $choix = $(Write-Host "Please choose a template ! (Use the number to indicate the template): " -ForegroundColor Yellow -NoNewline; Read-Host)
-
-            if ($choix -match '^\d+$') {
-                $choix = [int]$choix
-                $ListTemplateCount = $ListTemplate.Count
-
-                if ($choix -ge 1 -and $choix -le $ListTemplateCount) {
-                    $choix = $choix - 1
-                    return $ListTemplate[$choix]
-                } else {
-                    Write-Host " "
-                    Write-Host "Error : Please enter a number between 1 and $ListTemplateCount." -ForegroundColor Red
-                }
-            } else {
-                Write-Host " "
-                Write-Host "Error : Please enter a valid number." -ForegroundColor Red
-            }
-        }
-    }
-    else {
-        Write-Host " "
-        Write-Host "Error : No template was found" -ForegroundColor Red
-        Show-MenuDeployVirtualMachine
-        return
-    }   
-}
-
 function New-CloneTemplate {
     $groupName = Get-GroupDeploy
 
@@ -1577,23 +1607,53 @@ function New-CloneTemplate {
                 Clear-Host
                 $HDDrive = "$($LxcConfig.rootfs.Split(":")[0]):$($LxcConfig.rootfs.Split(":").Split(",").Split("=")[-1].Replace("G", " "))"
 
-                if (Get-DiskSpaceOK -NodeName $Template.Node -HDDrive $HDDrive -NbrDeploy $NbrDeploy)
+                #----------------------------------------------------------------------------------------------------------------
+                #----------------------------------------------------------------------------------------------------------------
+
+                $ListNodes = ((Get-PveNodes).ToData() | Sort-Object -Property node).node
+
+                foreach($node in $ListNodes)
                 {
+                    if((Get-PveNodesStorage -Node $node).ToData() | Where-Object storage -eq $($HDDrive.split(":")[0]))
+                    {
+                        $NodesList += $node
+                    }
+                }
+
+                foreach ($node in $NodesList) {
+                    if (Get-DiskSpaceOK -NodeName $node -HDDrive $HDDrive -NbrDeploy $NbrDeploy) {
+                        $ListNodesOk += $node
+                    }
+                }
+
+                if ($ListNodesOk.count -ge 1) {
+                    Clear-Host
+
                     foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
                     {
                         $name = $LxcConfig.hostname + "-" + $Vmid
 
-                        $command = New-CloneLXCTemplate -LxcConfig $LxcConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -FullClone $FullClone -Node $Template.node
+                        if ($ListNodesOk.Count -eq 1) {
+                            $node = $ListNodesOk[0]
+                        } 
+                        else {
+                            $node = $ListNodesOk[$nodeIndex]
+                        }
+
+                        $command = New-CloneLXCTemplate -LxcConfig $LxcConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -Storage $Disk -FullClone $FullClone -Node $Node
 
                         if ($true -eq $command) {
                             $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
-                        }   
+                        }
+
                         $Vmid++
+                        $nodeIndex = ($nodeIndex + 1) % $ListNodesOk.Count
                     }
                 }
-                else {
+                else
+                {
                     Write-Host "Error : Unable to create $NbrDeploy machines for the group $groupName" -ForegroundColor Red
-                }
+                } 
 
                 break
             }
@@ -1602,6 +1662,8 @@ function New-CloneTemplate {
                 $diskLxc = Get-Disk -NodeName $Template.Node -type "rootdir" -shared $true
                 $Disk = $diskLxc.Storage
                 $Node = $diskLxc.node
+
+                $DynamicDeploy = Get-DynamicDeploy
 
                 while ($true) {
                     Write-Host " "
@@ -1617,25 +1679,59 @@ function New-CloneTemplate {
 
                             $HDDrive = "$($Disk):$($LxcConfig.rootfs.Split(":").Split(",").Split("=")[-1].Replace("G", " "))"
 
-                            if (Get-DiskSpaceOK -NodeName $Node -HDDrive $HDDrive -NbrDeploy $NbrDeploy) {
+                            #----------------------------------------------------------------------------------------------------------------
+                            #----------------------------------------------------------------------------------------------------------------
 
+                            if($true -eq $DynamicDeploy)
+                            {
+                                $ListNodes = ((Get-PveNodes).ToData() | Sort-Object -Property node).node
+
+                                foreach($node in $ListNodes)
+                                {
+                                    if((Get-PveNodesStorage -Node $node).ToData() | Where-Object storage -eq $($HDDrive.split(":")[0]))
+                                    {
+                                        $NodesList += $node
+                                    }
+                                }
+                            }
+                            else{
+                                $NodesList += $node
+                            }
+
+                            foreach ($node in $NodesList) {
+                                if (Get-DiskSpaceOK -NodeName $node -HDDrive $HDDrive -NbrDeploy $NbrDeploy) {
+                                    $ListNodesOk += $node
+                                }
+                            }
+
+
+                            if ($ListNodesOk.count -ge 1) {
                                 Clear-Host
-
+            
                                 foreach($user in (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().members)
                                 {
                                     $name = $LxcConfig.hostname + "-" + $Vmid
-
+            
+                                    if ($ListNodesOk.Count -eq 1) {
+                                        $node = $ListNodesOk[0]
+                                    } 
+                                    else {
+                                        $node = $ListNodesOk[$nodeIndex]
+                                    }
+            
                                     $command = New-CloneLXCTemplate -LxcConfig $LxcConfig -Template $Template -name $name -Vmid $Vmid -groupName $groupName -Storage $Disk -FullClone $FullClone -Node $Node
-
+            
                                     if ($true -eq $command) {
                                         $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
-                                    }   
+                                    }
+            
                                     $Vmid++
+                                    $nodeIndex = ($nodeIndex + 1) % $ListNodesOk.Count
                                 }
                             }
-                            else {
+                            else
+                            {
                                 Write-Host "Error : Unable to create $NbrDeploy machines for the group $groupName" -ForegroundColor Red
-                                break
                             }   
 
                             break

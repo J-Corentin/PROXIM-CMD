@@ -989,6 +989,7 @@ function New-DeployLXCGroup {
     $nodeIndex = 0
 
     $groupName = Get-GroupDeploy
+    $HADeploy = Set-HALXCQemu
 
     if ($null -eq $groupName)
     {
@@ -1068,6 +1069,12 @@ function New-DeployLXCGroup {
 
                         if ($true -eq $command) {
                             $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
+
+                            if ($true -eq $command.IsSuccessStatusCode) {
+                                if ($HADeploy -and $HADeploy.Count -eq 1) {
+                                    $null = New-PveClusterHaResources -Sid $Vmid -Group $HADeploy -MaxRelocate 1 -MaxRestart 1 -State ignored
+                                }                               
+                            }
                         }
 
                         $Vmid++
@@ -1163,6 +1170,12 @@ function New-DeployLXCGroup {
             
                                     if ($true -eq $command) {
                                         $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
+
+                                        if ($true -eq $command.IsSuccessStatusCode) {
+                                            if ($HADeploy -and $HADeploy.Count -eq 1) {
+                                                $null = New-PveClusterHaResources -Sid $Vmid -Group $HADeploy -MaxRelocate 1 -MaxRestart 1 -State ignored
+                                            }                               
+                                        }
                                     }
             
                                     $Vmid++
@@ -1533,6 +1546,14 @@ function New-CloneTemplate {
         return
     }
 
+    $ListPools = (Get-PvePools).ToData()
+
+    if (-not ($ListPools | Where-Object poolid -eq $groupName)) {
+        $null = New-PvePools -Poolid $groupName
+    }
+
+    $HADeploy = Set-HALXCQemu
+
     $NbrDeploy = (Get-PveAccessGroupsIdx -Groupid $groupName).ToData().Members.Count
     $Template = Get-TemplateClone
     $Vmid = (Get-LastVMID) + 1
@@ -1644,6 +1665,12 @@ function New-CloneTemplate {
 
                         if ($true -eq $command) {
                             $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
+
+                            if ($true -eq $command.IsSuccessStatusCode) {
+                                if ($HADeploy -and $HADeploy.Count -eq 1) {
+                                    $null = New-PveClusterHaResources -Sid $Vmid -Group $HADeploy -MaxRelocate 1 -MaxRestart 1 -State ignored
+                                }                               
+                            }
                         }
 
                         $Vmid++
@@ -1723,6 +1750,12 @@ function New-CloneTemplate {
             
                                     if ($true -eq $command) {
                                         $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
+
+                                        if ($true -eq $command.IsSuccessStatusCode) {
+                                            if ($HADeploy -and $HADeploy.Count -eq 1) {
+                                                $null = New-PveClusterHaResources -Sid $Vmid -Group $HADeploy -MaxRelocate 1 -MaxRestart 1 -State ignored
+                                            }                               
+                                        }
                                     }
             
                                     $Vmid++
@@ -1891,6 +1924,12 @@ function New-CloneTemplate {
 
                         if ($true -eq $command) {
                             $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
+
+                            if ($true -eq $command.IsSuccessStatusCode) {
+                                if ($HADeploy -and $HADeploy.Count -eq 1) {
+                                    $null = New-PveClusterHaResources -Sid $Vmid -Group $HADeploy -MaxRelocate 1 -MaxRestart 1 -State ignored
+                                }                               
+                            }
                         }
 
                         $Vmid++
@@ -1976,6 +2015,12 @@ function New-CloneTemplate {
             
                                     if ($true -eq $command) {
                                         $command  = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path /vms/$Vmid
+
+                                        if ($true -eq $command.IsSuccessStatusCode) {
+                                            if ($HADeploy -and $HADeploy.Count -eq 1) {
+                                                $null = New-PveClusterHaResources -Sid $Vmid -Group $HADeploy -MaxRelocate 1 -MaxRestart 1 -State ignored
+                                            }                               
+                                        }
                                     }
             
                                     $Vmid++
@@ -2257,6 +2302,7 @@ function New-DeployQemuGroup {
     $Name
 
     $groupName = Get-GroupDeploy
+    $HADeploy = Set-HALXCQemu
 
     if ($null -eq $groupName) {
         return
@@ -2314,7 +2360,13 @@ function New-DeployQemuGroup {
                         $command = Set-Qemu -NodeName $node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Vmid $Vmid -QemuVMName $name -Nic $Nic -group $groupName
 
                         if ($true -eq $command) {
-                            $null = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path "/vms/$Vmid"
+                            $command = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path "/vms/$Vmid"
+
+                            if ($true -eq $command.IsSuccessStatusCode) {
+                                if ($HADeploy -and $HADeploy.Count -eq 1) {
+                                    $null = New-PveClusterHaResources -Sid $Vmid -Group $HADeploy -MaxRelocate 1 -MaxRestart 1 -State ignored
+                                }                               
+                            }
                         }
 
                         $Vmid++
@@ -2403,7 +2455,13 @@ function New-DeployQemuGroup {
                                     $command = Set-Qemu -NodeName $node -Cpu $CPU -Ram $Ram -HDDrive $HDDrive -Vmid $Vmid -QemuVMName $name -Nic $Nic -group $groupName
             
                                     if ($true -eq $command) {
-                                        $null = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path "/vms/$Vmid"
+                                        $command = Set-PveAccessAcl -Roles PVEVMUser -Users $user -Path "/vms/$Vmid"
+
+                                        if ($true -eq $command.IsSuccessStatusCode) {
+                                            if ($HADeploy -and $HADeploy.Count -eq 1) {
+                                                $null = New-PveClusterHaResources -Sid $Vmid -Group $HADeploy -MaxRelocate 1 -MaxRestart 1 -State ignored
+                                            }                               
+                                        }
                                     }
             
                                     $Vmid++
@@ -2687,6 +2745,78 @@ function Get-SizeDiskQemu {
             Write-Host " "
             Write-Host "Error : Please enter a number between 8GB and 64GB." -ForegroundColor Red
         }
+    }
+}
+
+function Set-HALXCQemu {
+    Clear-Host
+    $nbr = 1
+    
+    while ($true) {
+        $choix = $(Write-Host "Do you want to configure HA for your machines? (Y/N) : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choix -eq "Y" -or $choix -eq "N") {
+
+            if ($choix -eq "Y") {
+                break
+            }
+            else {
+                return $false
+            }
+            break
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error : Please enter a valid value" -ForegroundColor Red
+        }
+    }
+
+    $ListsHaGroups = (Get-PveClusterHaGroups).ToData().group
+
+    if($ListsHaGroups.count -ge 2)
+    {
+        Clear-Host
+        Write-Host "HA Groups available on your Proxmox server(s) :" -ForegroundColor Yellow
+        Write-Host "================================================" -ForegroundColor Cyan
+        foreach($HaGroup in $ListsHaGroups)
+        {
+            Write-Host "$nbr -> $HaGroup"
+
+            $nbr++
+        }
+
+        while ($true) {
+            Write-Host " "
+            $choix = $(Write-Host "Select HA Group : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+            if ($choix -match '^\d+$') {
+                $choix = [int]$choix
+
+                if ($choix -ge 1 -and $choix -le ($ListsHaGroups.count)) {
+                    $choix = $choix -1
+
+                    $HaGroup = $ListsHaGroups[$choix]
+
+                    return $HaGroup
+                    break
+                }
+                else {
+                    Write-Host " "
+                    Write-Host "Error : Please enter a valid number" -ForegroundColor Red
+                }
+            }
+            else {
+                Write-Host " "
+                Write-Host "Error : Please enter a valid number" -ForegroundColor Red
+            }
+        }
+    }
+    elseif ($ListsHaGroups.count -eq 1) {
+        return $ListsHaGroups
+    }
+    else {
+        Write-Host "Error : No HA Group found on your Proxmox server(s)" -ForegroundColor Red
+        return $false
     }
 }
 

@@ -86,7 +86,7 @@ function Show-Menu {
     # Display the menu options
     Write-Host "1 - " -ForegroundColor Green
     Write-Host "2 - Groups & Users" -ForegroundColor Green
-    Write-Host "3 - Deploy LXC & VM" -ForegroundColor Green
+    Write-Host "3 - Deploy/Remove LXC & VM" -ForegroundColor Green
     Write-Host "4 - Exit" -ForegroundColor Green
     Write-Host " "
 
@@ -136,7 +136,8 @@ function Show-MenuDeployVirtualMachine {
     Write-Host "1 - Deploying LXC Containers for a Group" -ForegroundColor Green
     Write-Host "2 - Deploying Qemu VM for a Group" -ForegroundColor Green
     Write-Host "3 - Deploying Template (VM or LXC) for a Group" -ForegroundColor Green
-    Write-Host "4 - Exit" -ForegroundColor Green
+    Write-Host "4 - Remove the machines from a pool" -ForegroundColor Green
+    Write-Host "5 - Exit" -ForegroundColor Green
     Write-Host " "
 
     # Prompt the user for a choice
@@ -148,7 +149,8 @@ function Show-MenuDeployVirtualMachine {
         1 { New-DeployLXCGroup }
         2 { New-DeployQemuGroup }
         3 { New-CloneTemplate }
-        4 { Show-Menu }
+        4 { Remove-PoolMembers }
+        5 { Show-Menu }
         default {
             Write-Host " "
             Write-Host "Error: Invalid choice. Please try again !!!" -ForegroundColor Red
@@ -831,7 +833,14 @@ function Get-GroupDeploy {
 
                 if ($choix -ge 1 -and $choix -le $GroupsCount) {
                     $choix = $choix - 1
-                    return $groups.Groupid[$choix]
+                    
+                    if ((Get-PveAccessGroupsIdx -Groupid $groups.Groupid[$choix]).ToData().Members.Count-ge 1) {
+                        return $groups.Groupid[$choix]
+                    }
+                    else {
+                        Write-Host " "
+                        Write-Host "Error : The group $($groups.Groupid[$choix]) has no users." -ForegroundColor Red
+                    }
                 } else {
                     Write-Host " "
                     Write-Host "Error : Please enter a number between 1 and $GroupsCount, or 'E' to exit." -ForegroundColor Red
@@ -2818,6 +2827,118 @@ function Set-HALXCQemu {
         Write-Host "Error : No HA Group found on your Proxmox server(s)" -ForegroundColor Red
         return $false
     }
+}
+
+function Remove-PoolMembers {
+    $ListPools = (Get-PvePools).ToData()
+    $nbr = 1
+
+    Clear-Host
+
+    Write-Host "Pool(s) that exist on your Proxmox system : " -ForegroundColor Yellow
+    Write-Host "============================================" -ForegroundColor Cyan
+
+    foreach($Pool in $ListPools)
+    {
+        Write-Host "$nbr -> $($Pool.poolid)"
+    }
+
+    while ($true) {
+        Write-Host " "
+        $choix = $(Write-Host "Please choose a pool or leave blank to exit : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        # Handle numeric input
+        if ($choix -match '^\d+$') {
+            $choix = [int]$choix
+            $PoolsCount = $ListPools.poolid.Count
+
+            if ($choix -ge 1 -and $choix -le $PoolsCount) {
+                $choix = $choix - 1
+                
+                $PoolName = $ListPools[$choix].poolid
+                break
+            } else {
+                Write-Host " "
+                Write-Host "Error : Please enter a number between 1 and $PoolsCount, or 'E' to exit." -ForegroundColor Red
+            }
+        } elseif ($choix -eq "E") {
+            Show-MenuDeployVirtualMachine
+            return
+        } else {
+            Write-Host " "
+            Write-Host "Error : Please enter a valid number or 'E' to exit." -ForegroundColor Red
+        }
+    }
+
+    Clear-Host
+
+    if (-not ($ListPools | Where-Object poolid -eq $PoolName)) {
+        Write-Host "Error : No pool found for the group $PoolName" -ForegroundColor Red
+        Show-MenuDeployVirtualMachine
+        return
+    }
+
+    $PoolMembers = (Get-PvePools -Poolid $PoolName).ToData().members | Sort-Object -Property Vmid
+
+    if ($PoolMembers.Count -eq 0) {
+        Write-Host "Error : No machine(s) found in the pool $PoolName" -ForegroundColor Red
+        Show-MenuDeployVirtualMachine
+        return
+    }
+
+    Write-Host "Machine(s) belonging to the pool $PoolName :" -ForegroundColor Yellow
+    Write-Host "=================================================" -ForegroundColor Cyan
+    foreach ($Member in $PoolMembers) {
+        Write-Host "Vmid -> $($Member.Vmid) Name -> $($Member.name)"
+    }
+
+    while ($true) {
+        Write-Host " "
+        $choix = $(Write-Host "Do you want to delete all machines from the pool $pool? (Y/N) : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choix -eq "Y" -or $choix -eq "N") {
+            break
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error : Please enter a valid value" -ForegroundColor Red
+        }
+    }
+
+    Clear-Host
+
+    if ($choix -eq "Y") {
+        <# Action to perform if the condition is true #>
+        foreach($Member in $PoolMembers)
+        {
+            if ($Member.type -eq "lxc") {
+                $command = Remove-PveNodesLxc -Node $Member.node -Vmid $Member.vmid -DestroyUnreferencedDisks -Force -Purge
+
+                if ($command.IsSuccessStatusCode) {
+                    Write-Host "Succes : The machine $($Member.vmid) has been deleted" -ForegroundColor Green
+                }
+                else {
+                    Write-Host "Error : The machine $($Member.vmid) was not deleted. -> $($command.ReasonPhrase)" -ForegroundColor Red
+                }
+            }
+            elseif ($Member.type -eq "qemu") {
+                $command = Remove-PveNodesQemu  -Node $Member.node -Vmid $Member.vmid -DestroyUnreferencedDisks -Purge
+
+                if ($command.IsSuccessStatusCode) {
+                    Write-Host "Succes : The machine $($Member.vmid) has been deleted" -ForegroundColor Green
+                }
+                else {
+                    Write-Host "Error : The machine $($Member.vmid) was not deleted. -> $($command.ReasonPhrase)" -ForegroundColor Red
+                }
+            }
+            else {
+                Write-Host "Error : The machine $($Member.vmid) is in an unsupported format $($Member.type)." -ForegroundColor Red
+            }
+        }
+    }
+    
+    Show-MenuDeployVirtualMachine
+    return
 }
 
 if (($PSVersionTable.PSVersion.Major) -ge 6) {

@@ -174,7 +174,7 @@ function Show-GroupsUsersMenu {
     # Display the menu options
     Write-Host "1 - Create Groups" -ForegroundColor Green
     Write-Host "2 - List Groups" -ForegroundColor Green
-    Write-Host "3 - Create Users" -ForegroundColor Green
+    Write-Host "3 - Create/Remove Users" -ForegroundColor Green
     Write-Host "4 - List Users" -ForegroundColor Green
     Write-Host "5 - Exit" -ForegroundColor Green
     Write-Host " "
@@ -250,7 +250,8 @@ function Show-UsersMenu {
     # Display the menu options
     Write-Host "1 - Import and Create Users by CSV" -ForegroundColor Green
     Write-Host "2 - Create individual User" -ForegroundColor Green
-    Write-Host "3 - Exit" -ForegroundColor Green
+    Write-Host "3 - Remove users from a group" -ForegroundColor Green
+    Write-Host "4 - Exit" -ForegroundColor Green
     Write-Host " "
 
     # Prompt the user for a choice
@@ -259,8 +260,9 @@ function Show-UsersMenu {
 
     switch ($choice) {
         1 {New-UserCSV}
-        2 {New-User} 
-        3 {Show-GroupsUsersMenu} #ok
+        2 {New-User}
+        3 { Remove-AllUsersGroup} 
+        4 {Show-GroupsUsersMenu} #ok
         default {
             Write-Host " "
             Write-Host " "
@@ -805,7 +807,7 @@ function Get-Welcome {
     #Read-Host "Press Enter to continue..."
 }
 
-function Get-GroupDeploy {
+function Get-GroupDeploy { param ( $type )
     $nbr = 1
     
     # Retrieve groups and convert to Data
@@ -824,8 +826,13 @@ function Get-GroupDeploy {
 
         while ($true) {
             Write-Host " "
-            $choix = $(Write-Host "Which group would you like to deploy virtual machines to? (Use the number to indicate the group). Press E to exit the function : " -ForegroundColor Yellow -NoNewline; Read-Host)
-
+            if ($type) {
+                $choix = $(Write-Host "Which group would you like to remove this user from? (Use the number to indicate the group). Press E to exit the function : " -ForegroundColor Yellow -NoNewline; Read-Host)
+            }
+            else {
+                $choix = $(Write-Host "Which group would you like to deploy virtual machines to? (Use the number to indicate the group). Press E to exit the function : " -ForegroundColor Yellow -NoNewline; Read-Host)
+            }
+            
             # Handle numeric input
             if ($choix -match '^\d+$') {
                 $choix = [int]$choix
@@ -846,8 +853,13 @@ function Get-GroupDeploy {
                     Write-Host "Error : Please enter a number between 1 and $GroupsCount, or 'E' to exit." -ForegroundColor Red
                 }
             } elseif ($choix -eq "E") {
-                Show-MenuDeployVirtualMachine
-                return
+                if ($type) {
+                    return $null
+                }
+                else {
+                    Show-MenuDeployVirtualMachine
+                    return
+                }
             } else {
                 Write-Host " "
                 Write-Host "Error : Please enter a valid number or 'E' to exit." -ForegroundColor Red
@@ -856,8 +868,13 @@ function Get-GroupDeploy {
     } else {
         Write-Host " "
         Write-Host "Error : No group was found" -ForegroundColor Red
-        Show-MenuDeployVirtualMachine
-        return
+        if ($type) {
+            return $null
+        }
+        else {
+            Show-MenuDeployVirtualMachine
+            return
+        }
     }
 }
 
@@ -1015,6 +1032,8 @@ function New-DeployLXCGroup {
         if (-not ($ListPools | Where-Object poolid -eq $groupName)) {
             $null = New-PvePools -Poolid $groupName
         }
+
+        $null = Set-PveAccessAcl -Path "/pool/$groupName" -Groups $groupName -Roles "PVEPoolUser"
         
         $Template = Get-LXCTemplate
 
@@ -1560,6 +1579,8 @@ function New-CloneTemplate {
     if (-not ($ListPools | Where-Object poolid -eq $groupName)) {
         $null = New-PvePools -Poolid $groupName
     }
+
+    $null = Set-PveAccessAcl -Path "/pool/$groupName" -Groups $groupName -Roles "PVEPoolUser"
 
     $HADeploy = Set-HALXCQemu
 
@@ -2327,6 +2348,8 @@ function New-DeployQemuGroup {
             $null = New-PvePools -Poolid $groupName
         }
 
+        $null = Set-PveAccessAcl -Path "/pool/$groupName" -Groups $groupName -Roles "PVEPoolUser"
+
         $NameVM = Get-NameQemu
 
         Clear-Host
@@ -2938,6 +2961,60 @@ function Remove-PoolMembers {
     }
     
     Show-MenuDeployVirtualMachine
+    return
+}
+
+function Remove-AllUsersGroup {
+    $GroupName = Get-GroupDeploy -type $true
+
+    if ($null -eq $GroupName) {
+        Show-UsersMenu
+        return
+    }
+
+    $listUsers = (Get-PveAccessGroupsIdx -Groupid $GroupName).ToData().members
+
+    if ($listUsers.count -eq 0) {
+        Write-Host "Error : No user found in the group $GroupName"
+        Show-UsersMenu
+        return
+    }
+
+    Clear-Host
+    Write-Host "Here are the users of the group $GroupName : " -ForegroundColor Yellow
+    Write-Host "=============================================" -ForegroundColor Cyan
+    $listUsers
+
+    while ($true) {
+        Write-Host " "
+        $choix = $(Write-Host "Do you want to delete all user(s) from the group $GroupName ? (Y/N) : " -ForegroundColor Yellow -NoNewline; Read-Host)
+
+        if ($choix -eq "Y" -or $choix -eq "N") {
+            break
+        }
+        else {
+            Write-Host " "
+            Write-Host "Error : Please enter a valid value" -ForegroundColor Red
+        }
+    }
+
+    Clear-Host
+
+    if ($choix -eq "Y") {
+        foreach($user in $listUsers)
+        {
+            $command = Remove-PveAccessUsers -Userid $user
+
+            if ($command.IsSuccessStatusCode) {
+                Write-Host "Succes : The user $user has been deleted" -ForegroundColor Green
+            }
+            else {
+                Write-Host "Error : The user $user was not deleted. -> $($command.ReasonPhrase)" -ForegroundColor Red
+            }
+        }
+    }
+    
+    Show-UsersMenu
     return
 }
 

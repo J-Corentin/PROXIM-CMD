@@ -303,6 +303,7 @@ function Get-FilePath {
     return $path
 }
 
+# Function to create Group(s) by CSV file
 function New-GroupCSV {
     # Initialize counters for success, error, and warning
     $GroupsSuccess = 0
@@ -398,30 +399,38 @@ function New-GroupCSV {
     }
 }
 
+# Function to create a new group
 function New-Group {
+    # Prompt the user to enter the name of the new group
     $groupName = $(Write-Host "Enter name of the new Group : " -ForegroundColor Yellow -NoNewline; Read-Host)
     Write-Host " "
 
+    # Check if the group already exists
     if ((Get-GroupExists $groupName) -EQ $false)
     {
+        # Check if the group name contains only allowed characters
         if ($groupName -notmatch "[^a-zA-Z0-9-_]")
         {
             try {
+                # Attempt to create the new group
                 $command = New-PveAccessGroups -Groupid $groupName -ErrorAction Stop
 
+                # Check if the group creation was successful
                 if ($command.IsSuccessStatusCode -eq $true)
                 {
-                    Write-Host "Succes : The group has been successfully created" -ForegroundColor Green
+                    Write-Host "Success: The group has been successfully created" -ForegroundColor Green
                 }
                 else {
-                    Write-Host "Error : " $command.ReasonPhrase -ForegroundColor Red
+                    Write-Host "Error: " $command.ReasonPhrase -ForegroundColor Red
                 }
             }
             catch {
-                Write-Host "Error : $_" -ForegroundColor Red
+                # Handle any errors that occur during group creation
+                Write-Host "Error: $_" -ForegroundColor Red
                 Write-Host " "
                 $choice = $(Write-Host "Type 1 to restart the creation of a group or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
-            
+
+                # Prompt the user to restart the group creation process or return to the previous menu
                 if ($choice -eq 1)
                 {
                     Clear-Host
@@ -431,22 +440,25 @@ function New-Group {
                     Show-GroupsMenu
                 }
             }
-            
+
             Write-Host " "
             $choice = $(Write-Host "Type 1 to restart the creation of a group or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
-            
+
+            # Prompt the user to restart the group creation process or return to the previous menu
             if ($choice -eq 1)
             {
                 Clear-Host
                 New-Group
             }
-            
+
         }
         else {
-            Write-Host "Error : Your group name contains special characters" -ForegroundColor Red
+            # Display an error message if the group name contains special characters
+            Write-Host "Error: Your group name contains special characters" -ForegroundColor Red
             Write-Host " "
             $choice = Read-Host "Type 1 to restart the creation of a group or leave it blank to return to the previous menu : "
-            
+
+            # Prompt the user to restart the group creation process or return to the previous menu
             if ($choice -eq 1)
             {
                 Clear-Host
@@ -455,10 +467,12 @@ function New-Group {
         }
     }
     else {
-        Write-Host "Warning : The group already exists on your Proxmox server." -ForegroundColor Magenta
+        # Display a warning message if the group already exists
+        Write-Host "Warning: The group already exists on your Proxmox server." -ForegroundColor Magenta
         Write-Host " "
         $choice = $(Write-Host "Type 1 to restart the creation of a group or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
 
+        # Prompt the user to restart the group creation process or return to the previous menu
         if ($choice -eq 1)
         {
             Clear-Host
@@ -466,115 +480,140 @@ function New-Group {
         }
     }
 
+    # Display the groups menu
     Show-GroupsMenu
 }
 
+# Function to get a password from the user
 function Get-Password {
-    
+
+    # Prompt the user to enter a password
     $password = $(Write-Host "Enter the password of the new user : " -ForegroundColor Yellow -NoNewline; Read-Host -AsSecureString)
 
+    # Check if the password length is less than or equal to 4 characters
     if ($password.Length -le 4)
     {
+        # Display an error message if the password is too short
         Write-Host "Error : The password is not long enough. It must be at least 5 characters long" -ForegroundColor Red
+
+        # Recursively call the function to prompt the user again
         Get-Password
+
+        # Exit the function
         return
     }
 
+    # Return the password if it meets the length requirement
     return $password
 }
 
-function Set-UserGroups {param ( [string]$UserName, [string]$GroupName)
+# Function to set user groups
+function Set-UserGroups {
+    param (
+        [string]$UserName,  # The username to be added to the group
+        [string]$GroupName # The group name to which the user will be added
+    )
 
-    if ((Get-GroupExists $GroupName) -EQ $false)
-    {
+    # Check if the group exists
+    if ((Get-GroupExists $GroupName) -EQ $false) {
+        # Prompt the user to create the group if it does not exist
         $choice = $(Write-Host "Info : The group $GroupName does not exist. Would you like to create it? Type 1 to create the group or leave it blank to ignore" -ForegroundColor Yellow -NoNewline; Read-Host)
 
-        if ($choice -eq 1)
-        {
-            if ($groupName -notmatch "[^a-zA-Z0-9-_]")
-            {
+        if ($choice -eq 1) {
+            # Validate the group name to ensure it does not contain special characters
+            if ($groupName -notmatch "[^a-zA-Z0-9-_]") {
                 try {
+                    # Attempt to create the group
                     $command = New-PveAccessGroups -Groupid $GroupName -ErrorAction Stop
-    
-                    if ($command.IsSuccessStatusCode -eq $true)
-                    {
-                        Write-Host "Succes : The group $($GroupName) has been successfully created" -ForegroundColor Green
-                    }
-                    else {
+
+                    if ($command.IsSuccessStatusCode -eq $true) {
+                        Write-Host "Success : The group $($GroupName) has been successfully created" -ForegroundColor Green
+                    } else {
                         Write-Host "Error : The group $($GroupName) has not been created -> $($command.ReasonPhrase)" -ForegroundColor Red
                     }
-                }
-                catch {
+                } catch {
                     Write-Host "Error : The group $($GroupName) has not been created -> $_" -ForegroundColor Red
                 }
-            }
-            else {
+            } else {
                 Write-Host "Error : Your group $($GroupName) contains special characters" -ForegroundColor Red
             }
-        }
-        else {
+        } else {
             return
         }
     }
-    
+
     try {
+        # Attempt to add the user to the group
         $command = Set-PveAccessUsers -Userid "$UserName@pve" -Groups $GroupName
 
-        if ($command.IsSuccessStatusCode -eq $true)
-        {
+        if ($command.IsSuccessStatusCode -eq $true) {
             Write-Host "Success : The user $($UserName) added the group $($GroupName)" -ForegroundColor Green
-        }
-        else {
+        } else {
             Write-Host "Error : The user $($UserName) failed to add the group $($GroupName) -> $($command.ReasonPhrase)" -ForegroundColor Red
         }
-    }
-    catch {
+    } catch {
         Write-Host "Error : The user $($UserName) failed to add the group $($GroupName) -> $_" -ForegroundColor Red
     }
-    
 }
 
+# Function to create User(s) by CSV file
 function New-UserCSV {
+    # Initialize counters for successful, error, and warning user operations
     $UsersSuccess = 0
     $UsersError = 0
     $UsersWarning = 0
     $nbr = 1
 
+    # Get the file path from the user
     $path = Get-FilePath
 
+    # Check if the path is null (no file selected)
     if ($null -eq $path) {
         Write-Host "Error : No file selected. Please try again." -ForegroundColor Red
+        # Recall the function to prompt the user again
         New-UserCSV
         return
     }
 
     Write-Host " "
 
+    # Import the CSV file
     $CSVFile = Import-Csv -Path $path -Delimiter ","
 
+    # Check if the CSV file contains at least one UserName
     if (($CSVFile.UserName).Count -ge 1) {
+        # Loop through each user in the CSV file
         foreach ($user in $CSVFile) {
             $UserName = $user.UserName
             $PW = $user.Password
 
+            # Check if UserName is null
             if ($null -eq $UserName) {
                 Write-Host "Error : No UserName value found line $nbr" -ForegroundColor Red
                 $nbr++
                 $UsersError++
             } else {
+                # Check if the user already exists
                 if ((Get-UserExists $UserName) -eq $false) {
+                    # Validate UserName format
                     if ($UserName -notmatch "[^a-zA-Z0-9-_]") {
+                        # Check if Password is not null
                         if ($null -ne $PW) {
+                            # Check if Password length is greater than 5
                             if ($PW.Length -gt 5) {
+                                # Convert password to SecureString
                                 $password = ConvertTo-SecureString -String $PW -AsPlainText -Force
 
                                 try {
+                                    # Create the user
                                     $command = New-PveAccessUsers -Userid "$UserName@pve" -Password $password -ErrorAction Stop
 
+                                    # Check if the user creation was successful
                                     if ($command.IsSuccessStatusCode -eq $true) {
                                         Write-Host "Succes : The user name $($UserName) has been successfully created" -ForegroundColor Green
                                         $UsersSuccess++
 
+                                        # Assign user to groups
                                         for ($i = 0; $i -lt 10; $i++)
                                         {
                                             $GroupField = "Group$i"
@@ -609,6 +648,7 @@ function New-UserCSV {
                     Write-Host "Warning: The user $($UserName) already exists on your Proxmox server." -ForegroundColor Magenta
                     $UsersWarning++
 
+                    # Assign user to groups
                     for ($i = 0; $i -lt 10; $i++)
                     {
                         $GroupField = "Group$i"
@@ -664,23 +704,29 @@ function New-UserCSV {
     }
 }
 
+# Function to create a new user
 function New-User {
+    # Prompt the user to enter the name of the new user
     $userName = $(Write-Host "Enter name of the new User : " -ForegroundColor Yellow -NoNewline; Read-Host)
 
-    if ((Get-UserExists $userName) -eq $false) 
+    # Check if the user already exists
+    if ((Get-UserExists $userName) -eq $false)
     {
+        # Validate the username to ensure it does not contain special characters
         if ($userName -notmatch "[^a-zA-Z0-9-_]")
         {
-            
+            # Get the password for the new user
             $password = Get-Password
 
             try {
+                # Attempt to create the new user
                 $command = New-PveAccessUsers -Userid "$userName@pve" -Password $password -ErrorAction Stop
 
+                # Check if the user creation was successful
                 if ($command.IsSuccessStatusCode -eq $true)
                 {
                     Write-Host " "
-                    Write-Host "Succes : The user has been successfully created" -ForegroundColor Green
+                    Write-Host "Success: The user has been successfully created" -ForegroundColor Green
                 }
                 else {
                     Write-Host " "
@@ -691,8 +737,9 @@ function New-User {
                 Write-Host " "
                 Write-Host "Error: The user $userName has not been created -> $_" -ForegroundColor Red
                 Write-Host " "
+                # Prompt the user to retry or return to the previous menu
                 $choice = $(Write-Host "Type 1 to restart the creation of a group or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
-            
+
                 if ($choice -eq 1)
                 {
                     Clear-Host
@@ -702,26 +749,25 @@ function New-User {
                     Show-UsersMenu
                 }
             }
-
-            
         }
         else {
             Write-Host " "
-            Write-Host "Error : Your user name contains special characters" -ForegroundColor Red
+            Write-Host "Error: Your user name contains special characters" -ForegroundColor Red
             Write-Host " "
+            # Prompt the user to retry or return to the previous menu
             $choice = $(Write-Host "Type 1 to restart the creation of a group or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
-            
+
             if ($choice -eq 1)
             {
                 Clear-Host
                 New-User
             }
         }
-        
     }
     else {
-        Write-Host "Warning : The user already exists on your Proxmox server." -ForegroundColor Magenta
+        Write-Host "Warning: The user already exists on your Proxmox server." -ForegroundColor Magenta
         Write-Host " "
+        # Prompt the user to retry or return to the previous menu
         $choice = $(Write-Host "Type 1 to restart the creation of a group or leave it blank to return to the previous menu : " -ForegroundColor Yellow -NoNewline; Read-Host)
 
         if ($choice -eq 1) {
@@ -729,53 +775,95 @@ function New-User {
             New-User
         }
     }
-    
+
+    # Display the users menu
     Show-UsersMenu
 }
 
-function Get-GroupExists { param ( [string]$groupName )
+# Function to check if a group exists
+function Get-GroupExists {
+    # Define the parameter for the function
+    param (
+        [string]$groupName
+    )
+
+    # Initialize the variable to true, assuming the group exists
     $GroupExists = $true
 
+    # Check if the group does not exist in the list of access groups
     if ($null -eq ((Get-PveAccessGroups).ToData() | Where-Object groupid -EQ $groupName))
     {
+        # If the group does not exist, set the variable to false
         $GroupExists = $false
     }
 
+    # Return the result indicating whether the group exists or not
     return $GroupExists
 }
 
-function Get-UserExists {param ( [string]$userName )
+# Function to check if a user exists
+function Get-UserExists {
+    # Define the parameter for the function
+    param (
+        [string]$userName
+    )
+
+    # Initialize the variable to true
     $UserExists = $true
 
+    # Check if the user exists in the Proxmox VE access users list
     if($null -eq ((Get-PveAccessUsers).ToData() | Where-Object userid -eq "$userName@pve"))
     {
+        # If the user does not exist, set the variable to false
         $UserExists = $false
     }
 
+    # Return the result
     return $UserExists
-    
 }
 
+# Function to retrieve and display groups from a Proxmox server
 function Get-Groups {
+    # Clear the console screen
     Clear-Host
+
+    # Retrieve the groups from the Proxmox server and convert them to data
     $groups = (Get-PveAccessGroups).ToData()
+
+    # Display a message indicating the list of existing groups
     Write-Host "Here are the existing groups on your Proxmox server :" -ForegroundColor Yellow
+
+    # Display a separator line
     Write-Host "=====================================================" -ForegroundColor Cyan
+
+    # Display the group IDs
     $groups.groupid
-    
+
+    # Call the function to show the groups and users menu
     Show-GroupsUsersMenu
 }
 
+# Function to retrieve and display users from a Proxmox server
 function Get-Users {
+    # Retrieve the list of users from the Proxmox server and convert it to data
     $users = (Get-PveAccessUsers).ToData()
+
+    # Display a message indicating the list of existing users
     Write-Host "Here are the existing users on your Proxmox server :" -ForegroundColor Yellow
+
+    # Display a separator line for better readability
     Write-Host "=====================================================" -ForegroundColor Cyan
+
+    # Display the user IDs of the retrieved users
     $users.userid
-    
+
+    # Call the function to show the groups and users menu
     Show-GroupsUsersMenu
 }
 
+# Function to display Welcome message
 function Get-Welcome {
+    # Clear the console screen
     Clear-Host
 
     # Define the welcome page information
@@ -784,7 +872,7 @@ function Get-Welcome {
     $developer = "Corentin"
     $module = "Corsinvest.ProxmoxVE.Api"
 
-    # Draw the program name in ASCII
+    # Draw the program name in ASCII art
     $asciiArt = @"
      ____  ____   _____  _____ __  __
     |  _ \|  _ \ / _ \ \/ /_ _|  \/  |
@@ -794,7 +882,7 @@ function Get-Welcome {
 "@
 
     # Display the welcome page
-    Write-Host $asciiArt 
+    Write-Host $asciiArt
     Write-Host " "
     Write-Host "=============================================" -ForegroundColor Cyan
     Write-Host "Welcome to $programName $version" -ForegroundColor Yellow
@@ -804,15 +892,21 @@ function Get-Welcome {
     Write-Host " "
 
     # Optional: Add a pause to allow the user to read the welcome page
-    #Read-Host "Press Enter to continue..."
+    # Read-Host "Press Enter to continue..."
 }
 
-function Get-GroupDeploy { param ( $type )
+# Function to get Group for a job
+function Get-GroupDeploy {
+    param (
+        $type
+    )
+
     $nbr = 1
-    
+
     # Retrieve groups and convert to Data
     $groups = (Get-PveAccessGroups).ToData() | Sort-Object -Property Groupid
-    
+
+    # Check if there are any groups
     if ($groups.Groupid.Count -ge 1) {
         Clear-Host
         Write-Host "Here are the groups that exist:" -ForegroundColor Yellow
@@ -824,6 +918,7 @@ function Get-GroupDeploy { param ( $type )
             $nbr++
         }
 
+        # Loop to get user input
         while ($true) {
             Write-Host " "
             if ($type) {
@@ -832,16 +927,18 @@ function Get-GroupDeploy { param ( $type )
             else {
                 $choix = $(Write-Host "Which group would you like to deploy virtual machines to? (Use the number to indicate the group). Press E to exit the function : " -ForegroundColor Yellow -NoNewline; Read-Host)
             }
-            
+
             # Handle numeric input
             if ($choix -match '^\d+$') {
                 $choix = [int]$choix
                 $GroupsCount = $groups.Groupid.Count
 
+                # Check if the input is within the valid range
                 if ($choix -ge 1 -and $choix -le $GroupsCount) {
                     $choix = $choix - 1
-                    
-                    if ((Get-PveAccessGroupsIdx -Groupid $groups.Groupid[$choix]).ToData().Members.Count-ge 1) {
+
+                    # Check if the group has members
+                    if ((Get-PveAccessGroupsIdx -Groupid $groups.Groupid[$choix]).ToData().Members.Count -ge 1) {
                         return $groups.Groupid[$choix]
                     }
                     else {
@@ -878,53 +975,80 @@ function Get-GroupDeploy { param ( $type )
     }
 }
 
-function Get-CpuNbr { param ( [string]$NodeName )
+# Function to get the number of CPU cores to assign to an LXC/VM
+function Get-CpuNbr {
+    param (
+        [string]$NodeName  # Parameter for the node name
+    )
+
+    # Get the maximum number of CPUs available on the specified node
     $Maxcpu = (Get-PveNode -Node $NodeName).maxcpu
 
+    # Infinite loop to prompt the user until a valid input is provided
     while ($true) {
 
-        $NbrCpu = 0
+        $NbrCpu = 0  # Initialize the number of CPUs to 0
 
-        #Write-Host " "
+        # Clear the console and display the CPU configuration prompt
         Clear-Host
         Write-Host "CPU Config :" -ForegroundColor Yellow
         Write-Host "=============" -ForegroundColor Cyan
-        $choice = $(Write-Host "Please enter a number between 1 and $Maxcpu for the number of cores to assign to the LXC : " -ForegroundColor Yellow -NoNewline ; Read-Host) 
 
+        # Prompt the user to enter a number between 1 and the maximum number of CPUs
+        $choice = $(Write-Host "Please enter a number between 1 and $Maxcpu for the number of cores to assign to the machine(s) : " -ForegroundColor Yellow -NoNewline ; Read-Host)
+
+        # Check if the input is a valid integer and within the specified range
         if ([int]::TryParse($choice, [ref]$NbrCpu) -and $NbrCpu -ge 1 -and $NbrCpu -le $Maxcpu) {
-            return $NbrCpu
-            break
+            return $NbrCpu  # Return the valid number of CPUs
+            break  # Exit the loop
         }
         else {
+            # Display an error message if the input is not valid
             Write-Host " "
             Write-Host "Error : Please enter a valid value" -ForegroundColor Red
-        } 
+        }
     }
 }
 
-function Get-Ram { param ( [string]$NodeName )
+# Function to get the amount of RAM to assign to an LXC/VM
+function Get-Ram {
+    # Parameter: NodeName - The name of the Proxmox node
+    param (
+        [string]$NodeName
+    )
 
+    # Get the maximum memory available on the specified Proxmox node
     $Maxram = (Get-PveNode -Node $NodeName).maxmem
 
+    # Convert the maximum memory from bytes to megabytes and round down
     $Maxram = [Math]::Floor($Maxram / (1024 * 1024))
 
+    # Loop until a valid RAM value is entered
     while ($true) {
-
+        # Initialize the RAM value to 0
         $NbrRam = 0
 
+        # Clear the console
         Clear-Host
+
+        # Display the RAM configuration prompt
         Write-Host "RAM Config :" -ForegroundColor Yellow
         Write-Host "=============" -ForegroundColor Cyan
-        $choice = $(Write-Host "Please enter a number between 512 and $Maxram for the amount of RAM in MB to assign to the LXC : " -ForegroundColor Yellow -NoNewline ; Read-Host)
 
+        # Prompt the user to enter a RAM value between 512 and the maximum available RAM
+        $choice = $(Write-Host "Please enter a number between 512 and $Maxram for the amount of RAM in MB to assign to the machine(s) : " -ForegroundColor Yellow -NoNewline ; Read-Host)
+
+        # Check if the entered value is a valid integer and within the specified range
         if ([int]::TryParse($choice, [ref]$NbrRam) -and $NbrRam -ge 512 -and $NbrRam -le $Maxram) {
+            # Return the valid RAM value and exit the loop
             return $NbrRam
             break
         }
         else {
+            # Display an error message if the entered value is invalid
             Write-Host " "
             Write-Host "Error : Please enter a valid value" -ForegroundColor Red
-        } 
+        }
     }
 }
 
@@ -3013,9 +3137,69 @@ function Remove-AllUsersGroup {
             }
         }
     }
+
+    if ((Get-PveAccessGroupsIdx -Groupid $GroupName).ToData().members.count -eq 0 -and $choix -eq "Y") {
+        while ($true) {
+            Write-Host " "
+            $choix = $(Write-Host "Do you want to delete the group $GroupName and the pool $GroupName? (Y/N) : " -ForegroundColor Yellow -NoNewline; Read-Host)
     
+            if ($choix -eq "Y" -or $choix -eq "N") {
+                break
+            }
+            else {
+                Write-Host " "
+                Write-Host "Error : Please enter a valid value" -ForegroundColor Red
+            }
+        }
+    }
+
+    if ($choix -eq "Y") {
+        $command = Remove-PveAccessGroups -Groupid $GroupName
+
+        if ($command.IsSuccessStatusCode) {
+            $command = Remove-PvePools -Poolid $GroupName
+
+            Write-Host "Succes : The group $GroupName has been deleted" -ForegroundColor Green
+
+            if ($command.IsSuccessStatusCode) {
+                Write-Host "Succes : The pool $GroupName has been deleted" -ForegroundColor Green
+            }
+            else {
+                Write-Host "Error : The pool $GroupName was not deleted. -> $($command.ReasonPhrase)" -ForegroundColor Red
+            }
+        }
+        else {
+            Write-Host "Error : The group $GroupName was not deleted. -> $($command.ReasonPhrase)" -ForegroundColor Red
+        }
+    }
+
     Show-UsersMenu
     return
+}
+
+function Exit-Program {
+
+    $programName = "PROXIM"
+    $version = "v1.0"
+    $developer = "Corentin"
+    $module = "Corsinvest.ProxmoxVE.Api"
+
+    $asciiArt = @"
+     ____  ____   _____  _____ __  __
+    |  _ \|  _ \ / _ \ \/ /_ _|  \/  |
+    | |_) | |_) | | | \  / | || |\/| |
+    |  __/|  _ <| |_| /  \ | || |  | |
+    |_|   |_| \_\\___/_/\_\___|_|  |_|
+"@
+
+    Write-Host $asciiArt
+    Write-Host " "
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host "Thank you for using $programName $version" -ForegroundColor Yellow
+    Write-Host "Developed by: $developer" -ForegroundColor Yellow
+    Write-Host "Based on the module: $module" -ForegroundColor Yellow
+    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host " "
 }
 
 if (($PSVersionTable.PSVersion.Major) -ge 6) {
@@ -3025,6 +3209,7 @@ if (($PSVersionTable.PSVersion.Major) -ge 6) {
         Get-welcome #ok
         $PveTicket = Get-PVECredential #ok
         Show-Menu
+        Exit-Program
     }
 
 } else {

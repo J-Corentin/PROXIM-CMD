@@ -32,7 +32,7 @@ After installing the module, you can download the [PROXIM.ps1](PROXIM.ps1) file 
 ```ps
 PS C:\Users\coren\Downloads> PROXIM.ps1
 ```
-## Function
+## Function using CSV File
 ### -> Add Groups by .CSV file :
 To create groups from a .CSV file, you must follow the format below:
 

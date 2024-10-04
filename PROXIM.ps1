@@ -98,10 +98,9 @@ function Show-Menu {
     Write-Host " "
 
     # Display the menu options
-    Write-Host "1 - " -ForegroundColor Green
-    Write-Host "2 - Groups & Users" -ForegroundColor Green
-    Write-Host "3 - Deploy/Remove LXC & VM" -ForegroundColor Green
-    Write-Host "4 - Exit" -ForegroundColor Green
+    Write-Host "1 - Groups & Users" -ForegroundColor Green
+    Write-Host "2 - Deploy/Remove LXC & VM" -ForegroundColor Green
+    Write-Host "3 - Exit" -ForegroundColor Green
     Write-Host " "
 
     # Prompt the user for a choice
@@ -111,17 +110,14 @@ function Show-Menu {
     # Process the user's choice
     switch ($choice) {
         1 {
-            # Placeholder for option 1
-        }
-        2 {
             # Call the function to show the Groups & Users menu
             Show-GroupsUsersMenu
         }
-        3 {
+        2 {
             # Call the function to show the Deploy Virtual Machine menu
             Show-MenuDeployVirtualMachine
         }
-        4 {
+        3 {
             # Exit the menu
             break
         }

@@ -43,7 +43,7 @@ Etudiants
 Administration
 ```
 
-GroupName is used to identify the column containing the group names.
+`GroupName` is used to identify the column containing the group names.
 
 ### -> Add Users by .CSV file
 To create users from a .CSV file, you must follow the format below:
@@ -55,3 +55,29 @@ Pomme,PommeLover123@,,,,,,,,78,,,
 ```
 
 This function allows you to create a user and configure their password, as well as assign groups via the Group[0-9] fields.
+
+
+
+## Proxmox Connection
+To connect, first enter the address of your Proxmox server. If it is a cluster, then enter the IP address of any node.
+Next, select your authentication method; there are two options: by API Token or by user (username + password).
+
+### API tokens
+To use API tokens, you need to follow a specific format. Here is an example:
+
+```ps
+prxadmim@pam!hello=d8dc0050-18e2-462f-bbfe-262cf1987e02
+```
+- The first part, `prxadmim@pam`, corresponds to the API key's username followed by its realm.
+- Next comes the token name, `hello`.
+- Finally, the token key is `d8dc0050-18e2-462f-bbfe-262cf1987e02`.
+
+## Reporting Issues and Feature Requests
+
+If you encounter a problem, have a question, or have an idea for a new feature, please follow these steps:
+
+1. **Check Existing Issues**: Before creating a new issue, please check if a similar issue or feature request already exists.
+2. **Create a New Issue**: If you don't find an existing issue, feel free to open a new issue. Please provide as much detail as possible to help us understand the problem or your idea.
+3. **Submit a Pull Request**: If you have a solution or a new feature to propose, you can submit a pull request. Make sure to follow the contribution guidelines.
+
+Your feedback and contributions are greatly appreciated!

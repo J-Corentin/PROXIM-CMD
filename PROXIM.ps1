@@ -2,10 +2,10 @@
 # ---------
 
 # Program: PROXIM
-# Version: v1.0
+# Version: v1.0.2
 # Developer: Corentin
 # Module: Corsinvest.ProxmoxVE.Api
-# Date: 2024-10-03
+# Date: 2024-10-11
 
 #===================================================================================================
 #===================================================================================================
@@ -947,13 +947,27 @@ function Get-GroupDeploy {
                 if ($choix -ge 1 -and $choix -le $GroupsCount) {
                     $choix = $choix - 1
 
-                    # Check if the group has members
-                    if ((Get-PveAccessGroupsIdx -Groupid $groups.Groupid[$choix]).ToData().Members.Count -ge 1) {
-                        return $groups.Groupid[$choix]
+                    if($groups.count -ge 2)
+                    {
+                        # Check if the group has members
+                        if ((Get-PveAccessGroupsIdx -Groupid $groups.Groupid[$choix]).ToData().Members.Count -ge 1) {
+                            return $groups.Groupid[$choix]
+                        }
+                        else {
+                            Write-Host " "
+                            Write-Host "Error : The group $($groups.Groupid[$choix]) has no users." -ForegroundColor Red
+                        }
                     }
-                    else {
-                        Write-Host " "
-                        Write-Host "Error : The group $($groups.Groupid[$choix]) has no users." -ForegroundColor Red
+                    else
+                    {
+                        # Check if the group has members
+                        if ((Get-PveAccessGroupsIdx -Groupid $groups.Groupid).ToData().Members.Count -ge 1) {
+                            return $groups.Groupid
+                        }
+                        else {
+                            Write-Host " "
+                            Write-Host "Error : The group $($groups.Groupid) has no users." -ForegroundColor Red
+                        }
                     }
                 } else {
                     Write-Host " "
